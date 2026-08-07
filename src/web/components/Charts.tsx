@@ -12,10 +12,11 @@ import {
   type ChartOptions,
   type TooltipItem,
 } from "chart.js";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bar, Chart, Line } from "react-chartjs-2";
 
 import { compactFans, fullFans, ymdLabel } from "../lib/format.ts";
+import { Button } from "./Bits.tsx";
 
 // The controllers matter, not just the elements: <Bar> and <Line> register
 // their own, but the generic <Chart> used for the mixed bar+line does not, and
@@ -284,23 +285,52 @@ export function MemberProgressionChart({
   days,
   height = 460,
   hidden,
-  onToggle,
+  onHiddenChange,
 }: {
   series: MemberSeries[];
   days: number[];
   height?: number;
   hidden: Set<number>;
-  onToggle: (viewerId: number) => void;
+  onHiddenChange: (next: Set<number>) => void;
 }) {
-  // Hovering a legend entry isolates that member. With thirty lines the pack
-  // is unreadable otherwise, and picking one line out by eye is impossible.
+  // Hovering isolates temporarily; clicking pins it. With thirty lines the pack
+  // is unreadable and picking one out by eye is impossible.
   const [focus, setFocus] = useState<number | null>(null);
+  // A single click has to wait to find out whether it is half of a double
+  // click, since the two mean different things here.
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (clickTimer.current) clearTimeout(clickTimer.current);
+    },
+    [],
+  );
 
   if (series.length === 0 || days.length < 2) return null;
 
+  const allIds = series.map((s) => s.friendViewerId);
+  const isolatedTo =
+    hidden.size === series.length - 1
+      ? (allIds.find((id) => !hidden.has(id)) ?? null)
+      : null;
+
+  function isolate(viewerId: number) {
+    // Clicking the already-isolated member puts everyone back.
+    onHiddenChange(
+      isolatedTo === viewerId ? new Set() : new Set(allIds.filter((id) => id !== viewerId)),
+    );
+  }
+
+  function hide(viewerId: number) {
+    const next = new Set(hidden);
+    next.add(viewerId);
+    onHiddenChange(next);
+  }
+
   const options = baseOptions("Total", true) as ChartOptions<"line">;
-  // One line at a time. `index` mode would list all thirty datasets at the
-  // hovered day, which is what it did before and is unreadable.
+  // One line at a time. `index` mode lists all thirty datasets at the hovered
+  // day, which is unreadable.
   options.interaction = { mode: "nearest", axis: "xy", intersect: false };
   options.plugins!.tooltip!.mode = "nearest";
   options.plugins!.tooltip!.intersect = false;
@@ -320,8 +350,7 @@ export function MemberProgressionChart({
           data={{
             labels: days.map((ymd) => ymdLabel(ymd)),
             datasets: visible.map((s) => {
-              const index = series.indexOf(s);
-              const colour = seriesColour(index);
+              const colour = seriesColour(series.indexOf(s));
               const dimmed = focus !== null && focus !== s.friendViewerId;
               const lifted = focus === s.friendViewerId;
               const byDay = new Map(s.points.map((p) => [p.ymd, p.value]));
@@ -329,9 +358,9 @@ export function MemberProgressionChart({
               return {
                 label: s.name,
                 data: days.map((ymd) => byDay.get(ymd) ?? null),
-                borderColor: dimmed ? "oklch(88% 0.01 260 / 0.35)" : colour,
+                borderColor: dimmed ? "oklch(88% 0.01 260 / 0.3)" : colour,
                 backgroundColor: colour,
-                borderWidth: lifted ? 3.5 : 1.75,
+                borderWidth: lifted ? 4.5 : 2.75,
                 pointRadius: 0,
                 pointHoverRadius: 5,
                 tension: 0.25,
@@ -345,17 +374,22 @@ export function MemberProgressionChart({
         />
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button tone="quiet" className="!px-2.5 !py-1 text-xs" onClick={() => onHiddenChange(new Set())}>
+          Show all
+        </Button>
+        <Button
+          tone="quiet"
+          className="!px-2.5 !py-1 text-xs"
+          onClick={() => onHiddenChange(new Set(allIds))}
+        >
+          Hide all
+        </Button>
         <span className="text-[11px] text-ink-400">
-          Hover a name to isolate it, click to hide it
+          click a name to isolate it · double-click to hide it
         </span>
         {hidden.size > 0 && (
-          <button
-            onClick={() => hidden.forEach((id) => onToggle(id))}
-            className="text-[11px] font-semibold text-teal-700 hover:underline"
-          >
-            show all ({hidden.size} hidden)
-          </button>
+          <span className="tnum ml-auto text-[11px] text-ink-400">{hidden.size} hidden</span>
         )}
       </div>
 
@@ -366,14 +400,22 @@ export function MemberProgressionChart({
       >
         {series.map((s, i) => {
           const off = hidden.has(s.friendViewerId);
+          const pinned = isolatedTo === s.friendViewerId;
           return (
             <li key={s.friendViewerId}>
               <button
-                onClick={() => onToggle(s.friendViewerId)}
                 onMouseEnter={() => setFocus(off ? null : s.friendViewerId)}
+                onClick={() => {
+                  if (clickTimer.current) clearTimeout(clickTimer.current);
+                  clickTimer.current = setTimeout(() => isolate(s.friendViewerId), 220);
+                }}
+                onDoubleClick={() => {
+                  if (clickTimer.current) clearTimeout(clickTimer.current);
+                  hide(s.friendViewerId);
+                }}
                 className={`flex w-full items-center gap-1.5 rounded-[6px] px-1.5 py-1 text-left text-xs transition-colors hover:bg-cream-200 ${
                   off ? "opacity-35" : ""
-                }`}
+                } ${pinned ? "bg-lav-200 font-bold" : ""}`}
               >
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-[2px]"

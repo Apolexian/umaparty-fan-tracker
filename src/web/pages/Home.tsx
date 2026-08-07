@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Download, Search } from "lucide-react";
 
 import { useApi, type ClubSummary, type Placement, type SearchHit } from "../lib/api.ts";
 import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
-import { ClubChip, Delta, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
+import { Button, ClubChip, Delta, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
 
 interface StandingsResponse {
   ymd: number;
@@ -15,6 +15,37 @@ interface StandingsResponse {
 export function Home() {
   const clubs = useApi<{ ymd: number; clubs: ClubSummary[] }>("clubs");
   const standings = useApi<StandingsResponse>("standings");
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [saving, setSaving] = useState(false);
+
+  /**
+   * Export the board as a PNG.
+   *
+   * This is the workflow the clubs already had -- screenshot the sheet, post it
+   * in Discord -- so it stays available rather than being replaced by "just
+   * send them the link".
+   */
+  async function savePng() {
+    if (!boardRef.current) return;
+    setSaving(true);
+    try {
+      const { toPng } = await import("html-to-image");
+      const url = await toPng(boardRef.current, {
+        // 2x so the numbers stay legible after Discord recompresses it, and an
+        // explicit background because the node itself is transparent.
+        pixelRatio: 2,
+        backgroundColor: "#fdfaf1",
+        style: { padding: "16px" },
+      });
+      const day = standings.data?.ymd ?? "";
+      const link = document.createElement("a");
+      link.download = `umaparty-${day}.png`;
+      link.href = url;
+      link.click();
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const byClub = useMemo(() => {
     const map = new Map<number, Placement[]>();
@@ -48,12 +79,24 @@ export function Home() {
 
       {clubs.data && standings.data && (
         <section>
-          <div className="mb-2 text-xs text-ink-400">{ymdLong(standings.data.ymd)}</div>
+          <div className="mb-2 flex items-center gap-3">
+            <span className="text-xs text-ink-400">{ymdLong(standings.data.ymd)}</span>
+            <Button
+              tone="quiet"
+              className="!px-2.5 !py-1 text-xs"
+              disabled={saving}
+              onClick={savePng}
+            >
+              <span className="flex items-center gap-1.5">
+                <Download size={13} /> {saving ? "Saving…" : "Save as PNG"}
+              </span>
+            </Button>
+          </div>
 
           {/* Scrolls horizontally rather than reflowing: the point is seeing the
               clubs side by side, the way the sheet does. */}
           <div className="-mx-5 overflow-x-auto px-5 pb-2">
-            <div className="flex gap-3">
+            <div ref={boardRef} className="flex gap-3 bg-cream-100">
               {clubs.data.clubs.map((club) => (
                 <ClubColumn
                   key={club.circle_id}

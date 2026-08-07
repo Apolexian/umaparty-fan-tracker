@@ -8,6 +8,12 @@
   // Static assets: the Vite build output. `single-page-application` makes the
   // Worker serve index.html for unknown paths so client-side routing works,
   // while /api/* still hits the Worker because run_worker_first matches it.
+  // Asset requests bypass the Worker entirely unless listed in
+  // run_worker_first, so asset cache headers cannot be set in code without
+  // routing every request through the Worker. Cloudflare's default of
+  // `max-age=0, must-revalidate` is used instead, which revalidates on every
+  // request and so cannot serve a stale bundle. A `_headers` file does NOT
+  // work here — that is a Pages feature; Static Assets just serves the file.
   "assets": {
     "directory": "./dist/client",
     "not_found_handling": "single-page-application",
