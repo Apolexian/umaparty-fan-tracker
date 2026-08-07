@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "umaparty-fan-tracker",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Static assets: the Vite build output. `single-page-application` makes the
+  // Worker serve index.html for unknown paths so client-side routing works,
+  // while /api/* still hits the Worker because run_worker_first matches it.
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "umaparty",
+      // Replace with the id printed by `npx wrangler d1 create umaparty`.
+      "database_id": "REPLACE_ME_AFTER_D1_CREATE",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Chrono refreshes after 10:00 UTC. The 15:00 pass exists because on the 1st
+  // of the month the club-level tables land five hours later than the member
+  // ones. Both runs are idempotent, so the second is a no-op on normal days.
+  "triggers": {
+    "crons": ["15 10 * * *", "15 15 * * *"]
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  "vars": {
+    "ENVIRONMENT": "production"
+  }
+
+  // Secrets, set via `wrangler secret put` — never in this file:
+  //   CHRONO_TOKEN    chronogenesis API token (Authorization header, no Bearer)
+  //   SESSION_SECRET  HMAC key for officer session cookies
+}
