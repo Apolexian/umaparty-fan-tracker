@@ -26,19 +26,27 @@ export const CLUBS = [
 /** Chrono asks for no more than one request per second; leave headroom. */
 export const REQUEST_GAP_MS = 1500;
 
+// Note: no TypeScript parameter properties anywhere in this file. `scripts/`
+// runs under `node --experimental-strip-types`, which rejects them.
+
 export class ChronoError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly body?: string,
-  ) {
+  status: number;
+  body: string | undefined;
+
+  constructor(message: string, status: number, body?: string) {
     super(message);
     this.name = "ChronoError";
+    this.status = status;
+    this.body = body;
   }
 }
 
 export class ChronoClient {
-  constructor(private readonly token: string) {}
+  private readonly token: string;
+
+  constructor(token: string) {
+    this.token = token;
+  }
 
   private async get<T>(path: string, params: Record<string, string>): Promise<T> {
     const url = new URL(path, BASE);
