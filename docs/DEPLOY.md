@@ -80,8 +80,8 @@ starts running daily at 10:15 and 15:15 UTC without further setup.
 npm run backfill -- --remote
 ```
 
-Pulls every month chronogenesis still holds (14 per club) — around 70 requests
-paced at 1.5s, so a few minutes. Safe to re-run.
+Pulls every month chronogenesis still holds (14 per club). Budget around 35
+minutes — most of it process-spawn overhead, not the API. Safe to re-run.
 
 > **Stop `wrangler dev` before running this.** It holds a lock on the local D1
 > file and the backfill will block behind it indefinitely.

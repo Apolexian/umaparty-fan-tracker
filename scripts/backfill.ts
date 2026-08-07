@@ -5,8 +5,18 @@
 //   npm run backfill -- --months 3
 //
 // Pulls every month chronogenesis still holds for every club and writes it
-// through `wrangler d1 execute`. Roughly 70 requests at 1.5s apart, so a couple
-// of minutes.
+// through `wrangler d1 execute`.
+//
+// Budget ~35 minutes, not the couple of minutes the API pacing suggests. The
+// time goes almost entirely on process startup: each club-month is split into
+// 5-6 chunks to stay under D1's SQLITE_TOOBIG limit, and every chunk is a fresh
+// `node wrangler` spawn at roughly 4s. That is ~400 spawns against ~2 minutes
+// of actual HTTP and SQL.
+//
+// Fixable by driving D1 over its HTTP API directly instead of shelling out per
+// chunk. Left as-is because this runs once per environment and correctness
+// mattered more than speed, but it is the first thing to change if it ever
+// needs re-running often.
 //
 // Safe to re-run: every statement is an idempotent upsert, and it will never
 // overwrite an observed non-zero gain with a zero (D017).
