@@ -1004,14 +1004,20 @@ function RosterEditor() {
         <div className="ml-auto flex gap-2">
           <Button
             tone="quiet"
-            title="Discard hand edits and reseed from the projection"
+            title="Rebuild the plan from today's numbers, discarding every hand edit"
             onClick={async () => {
+              if (
+                changed > 0 &&
+                !confirm(`Rebuild the plan? ${changed} hand-placed members will be reset.`)
+              ) {
+                return;
+              }
               await api("roster", { method: "POST", body: JSON.stringify({ action: "reset" }) });
               reload();
             }}
           >
             <span className="flex items-center gap-1.5">
-              <RotateCcw size={13} /> Reset
+              <RotateCcw size={13} /> Redo projection
             </span>
           </Button>
           <Button
