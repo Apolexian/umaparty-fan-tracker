@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Check, LogOut, RefreshCw, RotateCcw, Undo2 } from "lucide-react";
+import { Check, Copy, LogOut, RefreshCw, RotateCcw, Undo2 } from "lucide-react";
 
 import { compactFans } from "../lib/format.ts";
 import { Button, ClubChip, ErrorNote, Ribbon, Spinner } from "../components/Bits.tsx";
@@ -20,6 +20,12 @@ interface Officer {
   username: string;
   display_name: string;
   role: string;
+}
+
+interface OfficerRow extends Officer {
+  is_active: number;
+  created_at: string;
+  last_login_at: string | null;
 }
 
 interface RosterEntry {
@@ -116,6 +122,7 @@ export function Officers() {
       <ClubLeaders />
       <Noticeboard />
       <RosterEditor />
+      <ManageOfficers me={officer} />
       <ChangePassword onSignedOut={() => setOfficer(null)} />
     </div>
   );
@@ -172,6 +179,184 @@ function LoginForm({ onSignedIn }: { onSignedIn: (officer: Officer) => void }) {
         {busy ? "Signing in…" : "Sign in"}
       </Button>
     </form>
+  );
+}
+
+/** 12 is the server's minimum; 20 because nobody has to type this from memory. */
+function generatePassword(): string {
+  const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+}
+
+/**
+ * Create officer accounts.
+ *
+ * There is no self-signup (D012), so before this the only way in was the
+ * seed-admin script — a laptop with the repo, wrangler and D1 access. Every
+ * officer can see the roster; only an admin can add to it.
+ */
+function ManageOfficers({ me }: { me: Officer }) {
+  const [rows, setRows] = useState<OfficerRow[]>([]);
+  const [open, setOpen] = useState(false);
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("officer");
+  const [handover, setHandover] = useState<{ username: string; password: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(() => {
+    api<{ officers: OfficerRow[] }>("officers")
+      .then((r) => setRows(r.officers))
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  useEffect(reload, [reload]);
+
+  const isAdmin = me.role === "admin";
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-3">
+        <Ribbon>Officer accounts</Ribbon>
+        {isAdmin && (
+          <Button
+            tone="quiet"
+            className="ml-auto !py-1.5 text-xs"
+            onClick={() => {
+              setOpen(!open);
+              setError(null);
+            }}
+          >
+            {open ? "Cancel" : "Add officer"}
+          </Button>
+        )}
+      </div>
+
+      {open && isAdmin && (
+        <form
+          className="card space-y-2 px-4 py-3"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError(null);
+            try {
+              await api("officers", {
+                method: "POST",
+                body: JSON.stringify({ username, displayName, password, role }),
+              });
+              // Held on screen until dismissed: the password is not recoverable
+              // afterwards, only replaceable.
+              setHandover({ username: username.trim().toLowerCase(), password });
+              setUsername("");
+              setDisplayName("");
+              setPassword("");
+              setRole("officer");
+              setOpen(false);
+              reload();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              autoComplete="off"
+              className="card min-w-40 flex-1 bg-cream-50 px-3 py-2 text-sm outline-none focus:border-teal-400"
+            />
+            <input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Display name"
+              autoComplete="off"
+              className="card min-w-40 flex-1 bg-cream-50 px-3 py-2 text-sm outline-none focus:border-teal-400"
+            />
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="card bg-cream-50 px-3 py-2 text-sm outline-none focus:border-teal-400"
+            >
+              <option value="officer">Officer</option>
+              <option value="admin">Admin — can add officers</option>
+            </select>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password (12+ characters)"
+              autoComplete="off"
+              spellCheck={false}
+              className="card tnum min-w-56 flex-1 bg-cream-50 px-3 py-2 text-sm outline-none focus:border-teal-400"
+            />
+            <Button tone="quiet" onClick={() => setPassword(generatePassword())}>
+              Generate
+            </Button>
+            <Button type="submit" disabled={busy || password.length < 12 || !username.trim()}>
+              {busy ? "Creating…" : "Create"}
+            </Button>
+          </div>
+
+          {error && <ErrorNote message={error} />}
+        </form>
+      )}
+
+      {handover && (
+        <div className="card border-teal-400 bg-teal-100 px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-ink-900">{handover.username}</span>
+            <code className="capsule bg-cream-50 px-2 py-0.5 text-xs">{handover.password}</code>
+            <button
+              onClick={() => navigator.clipboard?.writeText(handover.password)}
+              className="capsule flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-ink-600 hover:bg-cream-200"
+            >
+              <Copy size={12} /> Copy
+            </button>
+            <button
+              onClick={() => setHandover(null)}
+              className="ml-auto text-xs font-semibold text-ink-500 hover:text-ink-900"
+            >
+              Dismiss
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-ink-600">Shown once. Send it privately.</p>
+        </div>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.id} className="card px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-ink-900">{row.display_name}</span>
+              {row.role === "admin" && (
+                <span className="capsule bg-lav-300 px-2 py-0.5 text-[11px] font-semibold text-ink-900">
+                  admin
+                </span>
+              )}
+              {row.is_active !== 1 && (
+                <span className="capsule bg-cream-300 px-2 py-0.5 text-[11px] font-semibold text-ink-600">
+                  disabled
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-xs text-ink-500">
+              {row.username} ·{" "}
+              {row.last_login_at
+                ? `last in ${row.last_login_at.slice(0, 10)}`
+                : "never signed in"}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -564,25 +564,39 @@ async function officers(request: Request, env: Env, officer: Officer): Promise<R
       return json({ error: "password must be at least 12 characters" }, 400);
     }
 
+    const username = body.username.trim().toLowerCase();
+    if (!/^[a-z0-9._-]{2,32}$/.test(username)) {
+      return json({ error: "username must be 2-32 characters: a-z 0-9 . _ -" }, 400);
+    }
+
     const { hash, salt, iterations } = await hashPassword(body.password);
 
-    await env.DB.prepare(
-      `INSERT INTO officers (username, display_name, pw_hash, pw_salt, pw_iters, role, created_at, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        body.username.trim().toLowerCase(),
-        body.displayName ?? body.username,
-        hash,
-        salt,
-        iterations,
-        body.role === "admin" ? "admin" : "officer",
-        new Date().toISOString(),
-        officer.id,
+    try {
+      await env.DB.prepare(
+        `INSERT INTO officers (username, display_name, pw_hash, pw_salt, pw_iters, role, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run();
+        .bind(
+          username,
+          body.displayName?.trim() || username,
+          hash,
+          salt,
+          iterations,
+          body.role === "admin" ? "admin" : "officer",
+          new Date().toISOString(),
+          officer.id,
+        )
+        .run();
+    } catch (error) {
+      // Otherwise the unique index escapes as a generic 500 and the form says
+      // "something went wrong" for a name that is merely taken.
+      if (String(error).includes("UNIQUE")) {
+        return json({ error: `username "${username}" is already taken` }, 409);
+      }
+      throw error;
+    }
 
-    await audit(env, officer.id, "officer.create", { username: body.username });
+    await audit(env, officer.id, "officer.create", { username });
     return json({ ok: true });
   }
 
