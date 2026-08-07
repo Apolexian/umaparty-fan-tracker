@@ -347,6 +347,30 @@ describe("projectPromotion", () => {
     });
   });
 
+  // D019: no minimum-days guard. A member with a single strong day outranks
+  // one who has ground all month, and that is the intended behaviour --
+  // considered and declined, not overlooked. This test exists so a guard
+  // cannot be added later as a "fairness fix" without the decision being
+  // revisited deliberately.
+  it("ranks a one-day member on their rate, with no minimum-days threshold", () => {
+    const ranked = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);
+    const brandNew: PromotionCandidate = {
+      friendViewerId: 999999999,
+      name: "joined yesterday",
+      currentCircleId: KAKKU,
+      mtdAvg: ranked[0]!.mtdAvg + 1,
+    };
+
+    const result = projectPromotion([...candidates, brandNew], clubs);
+    const placement = result.placements.find(
+      (p) => p.friendViewerId === brandNew.friendViewerId,
+    )!;
+
+    expect(placement.rankOverall).toBe(1);
+    expect(placement.projectedCircleId).toBe(UMAPARTY);
+    expect(placement.direction).toBe("up");
+  });
+
   it("handles a leader whose club is already full of leaders", () => {
     // Defensive: two leaders nominated for one club should not overfill it.
     const ranked = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);

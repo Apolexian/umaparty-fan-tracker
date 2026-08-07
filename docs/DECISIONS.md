@@ -96,7 +96,7 @@ their order, their capacity and their pool membership are officer-editable data
 | 5 | 877539742 | カック・サドル |
 
 30 slots each (150 total). Current membership is 30/30/30/29/28 = 147.
-**Capacity of exactly 30 is assumed, not confirmed** — see [D018](#d018).
+Capacity of 30 confirmed by Ivan — see [D018](#d018).
 
 ---
 
@@ -229,25 +229,31 @@ heuristic for backfilled months.
 
 ---
 
-## D018 — Club capacity defaults to 30, per club <a id="d018"></a>
-**2026-08-07 · ACTIVE**
+## D018 — Club capacity is 30 <a id="d018"></a>
+**2026-08-07 · Ivan · CONFIRMED**
 
-Current counts are 30/30/30/29/28. Capacity is a per-club column defaulting to
-30, editable by officers, and anything past total capacity is routed to a
-flagged waitlist rather than dropped.
+Confirmed by Ivan: 30 slots per club. Current counts are 30/30/30/29/28 = 147
+against 150.
+
+Still stored as a per-club column rather than a constant, so officers can
+resize a club without a deploy, but 30 is the answer rather than an assumption.
+Anything past total capacity is routed to a flagged waitlist rather than
+dropped.
 
 ---
 
-## D019 — Minimum-days guard on the promotion ranking
-**OPEN — deliberately not decided**
+## D019 — No minimum-days guard
+**2026-08-07 · Ivan · DECIDED — no guard**
 
 Dividing by days-active (D016) means someone who joined yesterday with one
-strong day can outrank a member who has ground all month. Harmless today (all
-current movers have 5 of 6 days) but it will bite on a reshuffle day.
+strong day can outrank a member who has ground all month.
 
-Suggestion, not implemented: rank members with fewer than ~3 active days on
-their previous month's average, flagged provisional. This is a fairness rule
-for the community, not a technical call — Ivan's to make.
+Ivan's call: **leave it.** No minimum-days threshold, no provisional flag, no
+fallback to last month's average. A member is ranked on the rate they have
+actually achieved in their current club, however few days that covers.
+
+Do not add one later "for fairness" without asking — it was considered and
+declined, not overlooked.
 
 ---
 
