@@ -112,11 +112,30 @@ export function Home() {
   );
 }
 
+/**
+ * Compact fans below `lg`, the full integer at desktop width, where there is
+ * room for it and people read exact numbers off the board.
+ */
+const BOARD_COLS =
+  "grid-cols-[2.25rem_1fr_4.5rem_4.25rem] lg:grid-cols-[2.25rem_1fr_6rem_4.25rem]";
+
+function BoardFans({ value }: { value: number }) {
+  return (
+    <span
+      className="tnum font-display text-right text-sm font-bold text-ink-900"
+      title={fullFans(value)}
+    >
+      <span className="lg:hidden">{compactFans(value)}</span>
+      <span className="hidden lg:inline">{fullFans(value)}</span>
+    </span>
+  );
+}
+
 function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[] }) {
   const clubTotal = members.reduce((sum, m) => sum + m.mtdAvg, 0);
 
   return (
-    <div className="card min-w-[17rem] flex-1 overflow-hidden">
+    <div className="card min-w-[17rem] flex-1 overflow-hidden lg:min-w-[19rem]">
       <div className="border-b-2 border-cream-300 bg-cream-100 px-3 py-2">
         <div className="flex items-center gap-2">
           <Link to={`/club/${club.circle_id}`} className="hover:opacity-80">
@@ -143,7 +162,9 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
         )}
       </div>
 
-      <div className="grid grid-cols-[2.25rem_1fr_4.5rem_4.25rem] gap-1 border-b border-cream-300 px-2 py-1.5 text-[11px] font-bold text-ink-500">
+      <div
+        className={`grid ${BOARD_COLS} gap-1 border-b border-cream-300 px-2 py-1.5 text-[11px] font-bold text-ink-500`}
+      >
         <span>#</span>
         <span>Name</span>
         <span className="text-right">Fans/day</span>
@@ -155,16 +176,11 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
           <li key={member.friendViewerId}>
             <Link
               to={`/m/${member.friendViewerId}`}
-              className="grid grid-cols-[2.25rem_1fr_4.5rem_4.25rem] items-center gap-1 border-b border-cream-200 px-2 py-1 last:border-0 hover:bg-teal-50"
+              className={`grid ${BOARD_COLS} items-center gap-1 border-b border-cream-200 px-2 py-1 last:border-0 hover:bg-teal-50`}
             >
               <RankBadge rank={index + 1} />
               <span className="truncate text-sm font-semibold text-ink-900">{member.name}</span>
-              <span
-                className="tnum text-right font-display text-sm font-bold text-ink-900"
-                title={fullFans(member.mtdAvg)}
-              >
-                {compactFans(member.mtdAvg)}
-              </span>
+              <BoardFans value={member.mtdAvg} />
               <Delta value={member.mtdAvgDelta} className="text-right text-xs" />
             </Link>
           </li>
@@ -177,7 +193,9 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
       <div className="flex items-center gap-2 border-t-2 border-cream-300 bg-cream-100 px-3 py-1.5 text-[11px] text-ink-500">
         <span>{members.length} members</span>
         <span className="tnum ml-auto font-bold text-ink-700" title={fullFans(clubTotal)}>
-          {compactFans(clubTotal)}/day
+          <span className="lg:hidden">{compactFans(clubTotal)}</span>
+          <span className="hidden lg:inline">{fullFans(clubTotal)}</span>
+          /day
         </span>
       </div>
     </div>
