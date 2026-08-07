@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
+  useDraggable,
   useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { Check, LogOut, RotateCcw, Undo2 } from "lucide-react";
 
 import { compactFans } from "../lib/format.ts";
@@ -281,6 +282,7 @@ function RosterEditor() {
   const [status, setStatus] = useState<string>("draft");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState<RosterEntry | null>(null);
 
   const reload = useCallback(() => {
     api<{
@@ -318,7 +320,12 @@ function RosterEditor() {
 
   const changed = entries.filter((e) => e.source === "manual").length;
 
+  function onDragStart(event: DragStartEvent) {
+    setDragging(entries.find((e) => e.friend_viewer_id === Number(event.active.id)) ?? null);
+  }
+
   async function onDragEnd(event: DragEndEvent) {
+    setDragging(null);
     const memberId = Number(event.active.id);
     const overId = event.over?.id;
     if (overId === undefined || overId === null) return;
@@ -399,7 +406,7 @@ function RosterEditor() {
         gets executed.
       </p>
 
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {clubs.map((club) => (
             <ClubColumn
@@ -410,6 +417,10 @@ function RosterEditor() {
           ))}
           <ClubColumn club={null} entries={byClub.get(null) ?? []} />
         </div>
+
+        {/* Follows the cursor across columns; without it the card stays clipped
+            inside its own scrolling column. */}
+        <DragOverlay>{dragging ? <MemberChip entry={dragging} /> : null}</DragOverlay>
       </DndContext>
     </section>
   );
@@ -458,20 +469,35 @@ function ClubColumn({ club, entries }: { club: RosterClub | null; entries: Roste
   );
 }
 
+/**
+ * Draggable, not sortable: members move between clubs, and order within a club
+ * carries no meaning — it is rebuilt from rank. `useSortable` would also need a
+ * SortableContext wrapper it never had.
+ */
 function MemberCard({ entry }: { entry: RosterEntry }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: entry.friend_viewer_id,
   });
-
-  const moved = entry.source === "manual" && entry.circle_id !== entry.projected_circle_id;
 
   return (
     <li
       ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1 }}
       {...attributes}
       {...listeners}
-      className={`capsule flex cursor-grab items-center gap-2 px-3 py-1.5 text-sm active:cursor-grabbing ${
+      style={{ opacity: isDragging ? 0.35 : 1 }}
+      className="cursor-grab active:cursor-grabbing"
+    >
+      <MemberChip entry={entry} />
+    </li>
+  );
+}
+
+function MemberChip({ entry }: { entry: RosterEntry }) {
+  const moved = entry.source === "manual" && entry.circle_id !== entry.projected_circle_id;
+
+  return (
+    <span
+      className={`capsule flex items-center gap-2 px-3 py-1.5 text-sm ${
         moved ? "bg-lav-200" : "bg-cream-200"
       }`}
       title={moved ? "Moved by hand from the projection" : undefined}
@@ -480,6 +506,6 @@ function MemberCard({ entry }: { entry: RosterEntry }) {
       <span className="tnum text-xs text-ink-500">
         {entry.mtd_avg ? compactFans(entry.mtd_avg) : "—"}
       </span>
-    </li>
+    </span>
   );
 }
