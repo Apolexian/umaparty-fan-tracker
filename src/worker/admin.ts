@@ -59,6 +59,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         return await manualIngest(request, env, officer);
       case "password":
         return await changePassword(request, env, officer);
+      case "discord":
+        return await discord(request, env, officer);
       default:
         return json({ error: "not found" }, 404);
     }
@@ -548,6 +550,82 @@ async function manualIngest(request: Request, env: Env, officer: Officer): Promi
     ok: summaries.every((s) => s.status === "ok"),
     summaries,
   });
+}
+
+// -------------------------------------------------------------- discord ----
+
+/**
+ * Map a member to their Discord handle.
+ *
+ * Entered by hand: nothing upstream carries it. GET returns every tracked
+ * member so the officer can work down the list and see what is still missing,
+ * rather than searching for names one at a time.
+ */
+async function discord(request: Request, env: Env, officer: Officer): Promise<Response> {
+  if (request.method === "GET") {
+    const ymd = await latestDataYmd(env);
+    const { results } = await env.DB.prepare(
+      `SELECT m.friend_viewer_id, m.name, md.circle_id, c.name AS club_name, c.slot_order,
+              d.discord_username, d.note, d.set_at, o.display_name AS set_by_name
+         FROM members m
+         LEFT JOIN member_day md ON md.friend_viewer_id = m.friend_viewer_id AND md.ymd = ?
+         LEFT JOIN clubs c ON c.circle_id = md.circle_id
+         LEFT JOIN member_discord d ON d.friend_viewer_id = m.friend_viewer_id
+         LEFT JOIN officers o ON o.id = d.set_by
+        WHERE md.friend_viewer_id IS NOT NULL
+        ORDER BY c.slot_order, m.name COLLATE NOCASE`,
+    )
+      .bind(ymd)
+      .all();
+    return json({ members: results });
+  }
+
+  if (request.method === "POST") {
+    const body = await readJson<{
+      friendViewerId?: number;
+      discordUsername?: string;
+      note?: string;
+    }>(request);
+    if (!body?.friendViewerId) return json({ error: "friendViewerId required" }, 400);
+
+    const username = body.discordUsername?.trim() ?? "";
+
+    // An empty handle clears the mapping rather than storing a blank row.
+    if (!username) {
+      await env.DB.prepare("DELETE FROM member_discord WHERE friend_viewer_id = ?")
+        .bind(body.friendViewerId)
+        .run();
+      await audit(env, officer.id, "discord.clear", { friendViewerId: body.friendViewerId });
+      return json({ ok: true, cleared: true });
+    }
+
+    if (username.length > 64) {
+      return json({ error: "that does not look like a Discord username" }, 400);
+    }
+
+    await env.DB.prepare(
+      `INSERT INTO member_discord (friend_viewer_id, discord_username, note, set_by, set_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (friend_viewer_id) DO UPDATE SET
+         discord_username = excluded.discord_username,
+         note             = excluded.note,
+         set_by           = excluded.set_by,
+         set_at           = excluded.set_at`,
+    )
+      .bind(
+        body.friendViewerId,
+        username,
+        body.note?.trim() || null,
+        officer.id,
+        new Date().toISOString(),
+      )
+      .run();
+
+    await audit(env, officer.id, "discord.set", { friendViewerId: body.friendViewerId, username });
+    return json({ ok: true });
+  }
+
+  return json({ error: "method not allowed" }, 405);
 }
 
 // ------------------------------------------------------------- officers ----

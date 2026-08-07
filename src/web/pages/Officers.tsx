@@ -125,6 +125,7 @@ export function Officers() {
       <ClubLeaders />
       <Noticeboard />
       <RosterEditor />
+      <DiscordNames />
       <ManageOfficers me={officer} />
       <ChangePassword onSignedOut={() => setOfficer(null)} />
     </div>
@@ -182,6 +183,152 @@ function LoginForm({ onSignedIn }: { onSignedIn: (officer: Officer) => void }) {
         {busy ? "Signing in…" : "Sign in"}
       </Button>
     </form>
+  );
+}
+
+interface DiscordRow {
+  friend_viewer_id: number;
+  name: string;
+  club_name: string | null;
+  slot_order: number | null;
+  discord_username: string | null;
+  note: string | null;
+  set_by_name: string | null;
+}
+
+/**
+ * Map members to their Discord handles, by hand — nothing upstream carries it.
+ *
+ * The whole roster is listed rather than a search box: the job is working down
+ * the list until nothing is missing, and "who have we not done yet" is the
+ * question being asked. Each field saves on blur, so it can be typed straight
+ * down without reaching for a button.
+ */
+function DiscordNames() {
+  const [rows, setRows] = useState<DiscordRow[]>([]);
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [saved, setSaved] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [onlyMissing, setOnlyMissing] = useState(false);
+  const [filter, setFilter] = useState("");
+
+  const reload = useCallback(() => {
+    api<{ members: DiscordRow[] }>("discord")
+      .then((r) => {
+        setRows(r.members);
+        setDrafts({});
+      })
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  useEffect(reload, [reload]);
+
+  async function save(row: DiscordRow, value: string) {
+    if (value.trim() === (row.discord_username ?? "")) return;
+    setError(null);
+    try {
+      await api("discord", {
+        method: "POST",
+        body: JSON.stringify({
+          friendViewerId: row.friend_viewer_id,
+          discordUsername: value.trim(),
+        }),
+      });
+      setRows((current) =>
+        current.map((r) =>
+          r.friend_viewer_id === row.friend_viewer_id
+            ? { ...r, discord_username: value.trim() || null }
+            : r,
+        ),
+      );
+      setSaved(row.friend_viewer_id);
+      setTimeout(() => setSaved(null), 1500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const query = filter.trim().toLowerCase();
+  const shown = rows.filter((row) => {
+    if (onlyMissing && row.discord_username) return false;
+    if (!query) return true;
+    return (
+      row.name.toLowerCase().includes(query) ||
+      (row.discord_username ?? "").toLowerCase().includes(query)
+    );
+  });
+
+  const mapped = rows.filter((r) => r.discord_username).length;
+
+  return (
+    <details className="space-y-3">
+      <summary className="cursor-pointer">
+        <span className="inline-flex items-center gap-3 align-middle">
+          <Ribbon>Discord names</Ribbon>
+          <span className="tnum text-xs text-ink-500">
+            {mapped}/{rows.length} mapped
+          </span>
+        </span>
+      </summary>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Filter by name"
+          className="card min-w-48 flex-1 bg-cream-50 px-3 py-2 text-sm outline-none focus:border-teal-400"
+        />
+        <label className="flex items-center gap-1.5 text-xs font-semibold text-ink-600">
+          <input
+            type="checkbox"
+            checked={onlyMissing}
+            onChange={(e) => setOnlyMissing(e.target.checked)}
+          />
+          Only missing
+        </label>
+      </div>
+
+      {error && <ErrorNote message={error} />}
+
+      <div className="card mt-2 overflow-hidden">
+        {shown.map((row) => (
+          <div
+            key={row.friend_viewer_id}
+            className="grid grid-cols-[1fr_1fr] items-center gap-2 border-b border-cream-200 px-3 py-1.5 last:border-0"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-semibold text-ink-900">{row.name}</span>
+              {row.club_name && (
+                <ClubChip name={row.club_name} slotOrder={row.slot_order ?? 0} />
+              )}
+            </span>
+
+            <span className="flex items-center gap-2">
+              <input
+                value={drafts[row.friend_viewer_id] ?? row.discord_username ?? ""}
+                onChange={(e) =>
+                  setDrafts((d) => ({ ...d, [row.friend_viewer_id]: e.target.value }))
+                }
+                onBlur={(e) => save(row, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                placeholder="discord username"
+                autoComplete="off"
+                spellCheck={false}
+                className="card w-full bg-cream-50 px-2.5 py-1 text-sm outline-none focus:border-teal-400"
+              />
+              {saved === row.friend_viewer_id && (
+                <Check size={14} className="shrink-0 text-teal-700" />
+              )}
+            </span>
+          </div>
+        ))}
+        {shown.length === 0 && (
+          <div className="px-3 py-6 text-center text-xs text-ink-400">nothing to show</div>
+        )}
+      </div>
+    </details>
   );
 }
 
