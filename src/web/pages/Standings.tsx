@@ -5,6 +5,15 @@ import { useApi, type ClubSummary, type Placement } from "../lib/api.ts";
 import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
 import { ClubChip, Delta, DirectionMark, ErrorNote, RankBadge, Ribbon, Spinner } from "../components/Bits.tsx";
 
+/**
+ * The "Now → next" cell holds two nowrap club chips and an arrow, which a fixed
+ * 7rem track could not contain -- it overflowed and painted over Fans / day.
+ * The slack now goes to that column instead of to the name, which had it and
+ * did not need it.
+ */
+const STANDINGS_COLS =
+  "grid-cols-[2.5rem_1fr_5.5rem_4.5rem] sm:grid-cols-[2.5rem_minmax(9rem,20rem)_1fr_6rem_5.75rem]";
+
 interface StandingsResponse {
   ymd: number;
   placements: Placement[];
@@ -91,7 +100,9 @@ export function Standings() {
       />
 
       <div className="card overflow-hidden">
-        <div className="grid grid-cols-[2.5rem_1fr_5.5rem_4.5rem] items-center gap-2 border-b border-cream-300 px-3 py-2 text-xs font-semibold text-ink-500 sm:grid-cols-[2.5rem_1fr_7rem_5.5rem_5rem]">
+        <div
+          className={`grid ${STANDINGS_COLS} items-center gap-2 border-b border-cream-300 px-3 py-2 text-xs font-semibold text-ink-500`}
+        >
           <span>#</span>
           <span>Name</span>
           <span className="hidden text-left sm:block">Now → next</span>
@@ -112,7 +123,7 @@ export function Standings() {
                 <li>
                   <Link
                     to={`/m/${placement.friendViewerId}`}
-                    className={`grid grid-cols-[2.5rem_1fr_5.5rem_4.5rem] items-center gap-2 border-b border-cream-200 px-3 py-2 hover:bg-cream-100 sm:grid-cols-[2.5rem_1fr_7rem_5.5rem_5rem] ${
+                    className={`grid ${STANDINGS_COLS} items-center gap-2 border-b border-cream-200 px-3 py-2 hover:bg-cream-100 ${
                       placement.onBubble ? "bg-lav-50" : ""
                     }`}
                   >
@@ -134,7 +145,7 @@ export function Standings() {
                       )}
                     </span>
 
-                    <span className="hidden items-center gap-1 sm:flex">
+                    <span className="hidden min-w-0 flex-wrap items-center gap-1 sm:flex">
                       {current && <ClubChip name={current.name} slotOrder={current.slot_order} />}
                       {projected && projected.circle_id !== placement.currentCircleId && (
                         <>
