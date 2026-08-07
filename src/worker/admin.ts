@@ -3,7 +3,15 @@
 // Everything here mutates, so nothing is cached, every route requires a valid
 // session, and every change is written to audit_log.
 
-import { audit, currentOfficer, hashPassword, login, logout, type Officer } from "./auth.ts";
+import {
+  audit,
+  currentOfficer,
+  fromBase64,
+  hashPassword,
+  login,
+  logout,
+  type Officer,
+} from "./auth.ts";
 import { ingestAll, latestDataYmd, recomputeOverallRanks } from "./ingest.ts";
 import { projectPromotion, type Pin, type PromotionClub } from "./promotion.ts";
 import type { Env } from "./types.ts";
@@ -46,6 +54,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         return await officers(request, env, officer);
       case "ingest":
         return await manualIngest(request, env, officer);
+      case "password":
+        return await changePassword(request, env, officer);
       default:
         return json({ error: "not found" }, 404);
     }
@@ -425,6 +435,60 @@ async function seedPlan(
   );
 
   return { id: planId, status: "draft", note: null };
+}
+
+// ------------------------------------------------------- change password ----
+
+/**
+ * Change your own password.
+ *
+ * Without this a bootstrap credential can never be rotated, which matters
+ * because the first admin's password is necessarily created outside the app.
+ *
+ * Requires the current password even though the session already proves
+ * identity: it stops someone who walks up to an unlocked machine from locking
+ * the real officer out, and every other session is revoked on success.
+ */
+async function changePassword(request: Request, env: Env, officer: Officer): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+
+  const body = await readJson<{ current?: string; next?: string }>(request);
+  if (!body?.current || !body?.next) {
+    return json({ error: "current and next password required" }, 400);
+  }
+  if (body.next.length < 12) {
+    return json({ error: "new password must be at least 12 characters" }, 400);
+  }
+
+  const row = await env.DB.prepare(
+    "SELECT pw_hash, pw_salt, pw_iters FROM officers WHERE id = ?",
+  )
+    .bind(officer.id)
+    .first<{ pw_hash: string; pw_salt: string; pw_iters: number }>();
+
+  if (!row) return json({ error: "officer not found" }, 404);
+
+  const check = await hashPassword(body.current, fromBase64(row.pw_salt), row.pw_iters);
+  if (check.hash !== row.pw_hash) {
+    return json({ error: "current password is wrong" }, 401);
+  }
+
+  // Rehashed at the current iteration count, so changing a password also
+  // upgrades an account created under a weaker one.
+  const { hash, salt, iterations } = await hashPassword(body.next);
+
+  await env.DB.prepare(
+    "UPDATE officers SET pw_hash = ?, pw_salt = ?, pw_iters = ? WHERE id = ?",
+  )
+    .bind(hash, salt, iterations, officer.id)
+    .run();
+
+  // Every session is dropped, including this one: if the old password leaked,
+  // any session opened with it dies here.
+  await env.DB.prepare("DELETE FROM sessions WHERE officer_id = ?").bind(officer.id).run();
+  await audit(env, officer.id, "officer.password_changed", null);
+
+  return json({ ok: true, signedOut: true });
 }
 
 // --------------------------------------------------------- manual ingest ----

@@ -95,6 +95,7 @@ export function Officers() {
       <RefreshData />
       <Noticeboard />
       <RosterEditor />
+      <ChangePassword onSignedOut={() => setOfficer(null)} />
     </div>
   );
 }
@@ -150,6 +151,70 @@ function LoginForm({ onSignedIn }: { onSignedIn: (officer: Officer) => void }) {
         {busy ? "Signing in…" : "Sign in"}
       </Button>
     </form>
+  );
+}
+
+/**
+ * Rotate your own password. The first admin's password is necessarily created
+ * outside the app, so without this it could never be changed.
+ */
+function ChangePassword({ onSignedOut }: { onSignedOut: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <details className="card px-4 py-3">
+      <summary className="cursor-pointer text-sm font-semibold text-ink-700">
+        Change my password
+      </summary>
+
+      <form
+        className="mt-3 flex flex-wrap items-start gap-2"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError(null);
+          try {
+            await api("password", {
+              method: "POST",
+              body: JSON.stringify({ current, next }),
+            });
+            // Every session is revoked server-side, including this one.
+            onSignedOut();
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <input
+          type="password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          placeholder="Current password"
+          autoComplete="current-password"
+          className="card bg-cream-50 px-3 py-2 text-sm outline-none focus:border-teal-400"
+        />
+        <input
+          type="password"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          placeholder="New password (12+ characters)"
+          autoComplete="new-password"
+          className="card bg-cream-50 px-3 py-2 text-sm outline-none focus:border-teal-400"
+        />
+        <Button type="submit" disabled={busy}>
+          {busy ? "Changing…" : "Change"}
+        </Button>
+        <p className="w-full text-xs text-ink-400">
+          Changing it signs out every device, including this one.
+        </p>
+        {error && <ErrorNote message={error} />}
+      </form>
+    </details>
   );
 }
 
