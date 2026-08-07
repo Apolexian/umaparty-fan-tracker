@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+/* Fonts are self-hosted rather than pulled from Google: one less third party,
+   and no external request to block. Both are variable, latin subset. */
+@font-face {
+  font-family: "Baloo 2";
+  src: url("./fonts/baloo-2-latin.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Figtree";
+  src: url("./fonts/figtree-latin.woff2") format("woff2");
+  font-weight: 300 900;
+  font-display: swap;
+}
+
+/* ---------------------------------------------------------------------------
+   Brand tokens. See DESIGN.md — these are the only colours and radii in use.
+
+   Contrast measured against the cream page background (#FFFCF5):
+
+     brand teal  #00B5BE  2.45:1  fills and borders ONLY, never text
+     teal-700    #00707A  5.70:1  passes AA for body text
+     teal-800    #005A63  7.76:1
+     coral       #E0574B  3.64:1  fills, large numerals
+     coral-700   #C0392B  5.31:1  passes AA for body text
+     ink         #241F26 15.78:1
+
+   Brand teal fails even the 3:1 large-text threshold, which is why the darker
+   step exists rather than being a nicety.
+--------------------------------------------------------------------------- */
+
+@theme {
+  /* Teal — the single load-bearing accent. #00B5BE is oklch(70.3% 0.1196 201.1) */
+  --color-teal-50: oklch(97.5% 0.018 201.1);
+  --color-teal-100: oklch(94% 0.038 201.1);
+  --color-teal-200: oklch(88% 0.066 201.1);
+  --color-teal-300: oklch(81% 0.092 201.1);
+  --color-teal-400: oklch(75.5% 0.108 201.1);
+  --color-teal-500: oklch(70.3% 0.1196 201.1); /* the brand colour exactly */
+  --color-teal-600: oklch(60% 0.106 201.1);
+  --color-teal-700: oklch(49% 0.088 201.1);
+  --color-teal-800: oklch(41% 0.073 201.1);
+  --color-teal-900: oklch(33% 0.058 201.1);
+
+  /* Lavender — surfaces and fills only. #DFC8E7 is oklch(86.1% 0.0489 317.4) */
+  --color-lav-50: oklch(97% 0.012 317.4);
+  --color-lav-100: oklch(94% 0.022 317.4);
+  --color-lav-200: oklch(90% 0.036 317.4);
+  --color-lav-300: oklch(86.1% 0.0489 317.4); /* the brand colour exactly */
+  --color-lav-400: oklch(79% 0.068 317.4);
+  --color-lav-500: oklch(70% 0.09 317.4);
+
+  /* Cream — warm page and card backgrounds. Never #fff. */
+  --color-cream-50: oklch(99.2% 0.008 85);
+  --color-cream-100: oklch(97.8% 0.014 85);
+  --color-cream-200: oklch(95.4% 0.02 85);
+  --color-cream-300: oklch(92% 0.026 85);
+
+  /* Ink — warm near-black. Never #000, never a stock grey. */
+  --color-ink-400: oklch(62% 0.012 320);
+  --color-ink-500: oklch(52% 0.015 320);
+  --color-ink-600: oklch(42% 0.018 320);
+  --color-ink-700: oklch(34% 0.02 320);
+  --color-ink-900: oklch(22% 0.022 320);
+
+  /* Coral for negative change. Deliberately not red-500. */
+  --color-coral-100: oklch(94% 0.03 27);
+  --color-coral-300: oklch(80% 0.11 27);
+  --color-coral-500: oklch(63% 0.19 27);
+  --color-coral-700: oklch(52% 0.18 27);
+
+  --font-display: "Baloo 2", ui-rounded, "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
+
+  /* Deliberately non-uniform: extremes at both ends read as chosen, whereas a
+     uniform 16px everywhere is the generated look. */
+  --radius-pill: 999px;
+  --radius-card: 12px;
+  --radius-tight: 6px;
+
+  --shadow-soft: 0 1px 2px oklch(49% 0.088 201.1 / 0.06), 0 4px 12px oklch(49% 0.088 201.1 / 0.05);
+  --shadow-lift: 0 2px 4px oklch(49% 0.088 201.1 / 0.08), 0 8px 20px oklch(49% 0.088 201.1 / 0.08);
+}
+
+@layer base {
+  html {
+    background: var(--color-cream-100);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Every fan figure is eight digits. Without tabular numerals a column of
+     them fails to line up, which is the single thing that makes a data table
+     look amateur — and this site is mostly a data table. */
+  .tnum {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: "tnum" 1, "lnum" 1;
+  }
+
+  ::selection {
+    background: var(--color-lav-300);
+    color: var(--color-ink-900);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-teal-600);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* The one repeated primitive. Members are capsules, stats are capsules. */
+  .capsule {
+    border-radius: var(--radius-pill);
+  }
+
+  .card {
+    border-radius: var(--radius-card);
+    background: var(--color-cream-50);
+    border: 1px solid var(--color-cream-300);
+  }
+
+  .row-lift {
+    transition:
+      transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 140ms ease;
+  }
+
+  .row-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
