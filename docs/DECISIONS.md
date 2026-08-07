@@ -360,3 +360,24 @@ red when over, but does not block the drop.
 The game is the real constraint, not this site, and officers are often
 mid-negotiation when they arrange a roster. A hard block would make the tool
 lie about what they intend to do.
+
+---
+
+## D026 — Backfilled months use the heuristic denominator; live days use stints
+**2026-08-07 · ACTIVE — known limitation**
+
+`days_active` (D016) comes from our own `club_stint` records where we have them,
+and otherwise from the leading-zeros heuristic in `derive.ts`.
+
+Backfilled history predates any stint records, so every month before go-live
+uses the heuristic. That is correct for genuine mid-month movers — the zeros are
+exactly the signal — but wrong by one day for a member who was in the club all
+month and happened to gain nothing on the 1st: their denominator shrinks and
+their average is slightly overstated.
+
+Not worth correcting: the affected case is rare, the error is one day out of a
+month, and historical months are read-only context rather than anything the
+reshuffle acts on. Live data, which *is* what the reshuffle acts on, uses stints
+and is exact.
+
+Worth knowing before treating a pre-go-live month as ground truth.
