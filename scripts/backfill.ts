@@ -33,9 +33,12 @@ interface ClubRow {
 // --command here does. Going straight to the .js sidesteps both.
 const WRANGLER = join(process.cwd(), "node_modules", "wrangler", "bin", "wrangler.js");
 
-// D1 rejects an oversized batch with SQLITE_TOOBIG. One club-month is ~1000
-// statements, comfortably over the limit, so batches are chunked.
-const CHUNK_SIZE = 200;
+// D1 rejects an oversized batch with SQLITE_TOOBIG, and the limit is on the
+// total SQL *bytes*, not the statement count. A member_day upsert is ~700
+// chars, so a 200-statement chunk is ~140 kB and still fails; chunking by size
+// is the only thing that holds for both a 6-day current month and a full 31-day
+// one (~1000 statements).
+const CHUNK_BYTES = 40_000;
 
 const args = process.argv.slice(2);
 const REMOTE = args.includes("--remote");
@@ -50,14 +53,27 @@ function wrangler(args: string[], opts: { capture: boolean }): string {
 }
 
 function executeSql(statements: string[]): void {
-  for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
+  let batch: string[] = [];
+  let bytes = 0;
+
+  const flush = () => {
+    if (batch.length === 0) return;
     const dir = mkdtempSync(join(tmpdir(), "umaparty-backfill-"));
     const file = join(dir, "batch.sql");
-    writeFileSync(file, statements.slice(i, i + CHUNK_SIZE).join("\n"), "utf8");
+    writeFileSync(file, batch.join("\n"), "utf8");
     wrangler(["d1", "execute", "umaparty", target, "--yes", `--file=${file}`], {
       capture: false,
     });
+    batch = [];
+    bytes = 0;
+  };
+
+  for (const statement of statements) {
+    if (bytes > 0 && bytes + statement.length > CHUNK_BYTES) flush();
+    batch.push(statement);
+    bytes += statement.length + 1;
   }
+  flush();
 }
 
 function query<T>(sql: string): T[] {
