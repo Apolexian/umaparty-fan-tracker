@@ -42,6 +42,7 @@ block in `src/web/styles.css`.
 | `--color-cream-*` | page and card backgrounds. Not `#fff` |
 | `--color-ink-*` | text. A warm near-black, not `#000` and not a stock grey |
 | `--color-coral-*` | negative change. Deliberately **not** `red-500` |
+| `--color-gold-*` | the club's own in-game rank only. **Never** member rank |
 
 Contrast rules that follow from the palette:
 
@@ -81,6 +82,9 @@ different scales, which is what makes it read as a system.
   hover. `prefers-reduced-motion` disables all of it.
 - **Density**: this is a leaderboard people scan on a phone. Rows are compact
   and the numbers are the loudest thing on screen.
+- **No podium.** Every member rank badge looks identical — no gold for the top
+  three, no highlight for the top ten. Singling out the head of the leaderboard
+  is not how these clubs present themselves, and the number already says it.
 - **Copy**: labels and numbers, not sentences. Explanatory subtitles under a
   heading are the single most reliable generated-UI tell, and every one written
   here so far has been cut on sight — "Every club, every member, updated daily",

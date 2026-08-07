@@ -6,12 +6,9 @@ export interface Point {
 }
 
 /**
- * Inline SVG line, no chart library.
- *
- * A month-to-date average moves slowly by construction, so the y-axis is fitted
- * to the actual range rather than anchored at zero — otherwise every member's
- * chart is a flat line. That makes the axis labels mandatory, not decorative:
- * without them a 2% wobble and a 200% climb look identical.
+ * Inline SVG line. The y-axis fits the data range rather than starting at zero,
+ * since a month-to-date average barely moves — hence the min/max labels, which
+ * are load-bearing here, not decoration.
  */
 export function Sparkline({
   points,
@@ -83,7 +80,7 @@ export function Sparkline({
         ))}
       </svg>
 
-      {/* The scale. Without it the shape is meaningless. */}
+
       <span className="tnum pointer-events-none absolute top-0 right-0 text-[10px] text-ink-400">
         {format(max)}
       </span>

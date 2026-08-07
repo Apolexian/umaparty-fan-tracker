@@ -1,12 +1,7 @@
 import { Link } from "react-router-dom";
 import { compactFans, signed } from "../lib/format.ts";
 
-/**
- * Day-over-day change in average daily fans.
- *
- * Teal for up, coral for down — and the darker steps, because brand teal is
- * only 2.45:1 on cream and fails AA even at large sizes (DESIGN.md).
- */
+/** Day-over-day change. Darker teal/coral steps: the brand tones fail AA. */
 export function Delta({ value, className = "" }: { value: number; className?: string }) {
   if (value === 0) {
     return <span className={`tnum text-ink-400 ${className}`}>—</span>;
@@ -50,7 +45,7 @@ const CLUB_TINTS: Record<number, string> = {
   5: "bg-cream-300 text-ink-700",
 };
 
-/** Club identity as a capsule — the repeated primitive from DESIGN.md. */
+/** Club identity capsule. */
 export function ClubChip({
   name,
   slotOrder,
@@ -96,32 +91,16 @@ export function StatPill({
   );
 }
 
-/**
- * Rank badge.
- *
- * Gold for the top three, because the game marks standing with gold laurels
- * and these players read gold as "rank" before they read any label. Teal for
- * the rest of the top ten, plain otherwise. Always a fill — brand teal is
- * 2.45:1 on cream and can never carry text.
- */
+/** Uniform for every rank — no podium colours. See DESIGN.md. */
 export function RankBadge({ rank }: { rank: number }) {
-  const tone =
-    rank <= 3
-      ? "bg-gold-500 text-gold-900 ring-1 ring-gold-700/40"
-      : rank <= 10
-        ? "bg-teal-500 text-cream-50"
-        : "bg-cream-200 text-ink-600";
-
   return (
-    <span
-      className={`capsule tnum inline-flex h-7 min-w-7 items-center justify-center px-2 text-sm font-bold ${tone}`}
-    >
+    <span className="capsule tnum inline-flex h-6 min-w-6 items-center justify-center bg-cream-200 px-1.5 text-xs font-bold text-ink-600">
       {rank}
     </span>
   );
 }
 
-/** Angled banner section heading, as the game sets its section titles. */
+/** Angled banner heading. */
 export function Ribbon({ children }: { children: React.ReactNode }) {
   return (
     <h2 className="ribbon font-display inline-block bg-teal-500 py-1 pl-3 text-lg font-extrabold text-cream-50">
@@ -130,7 +109,7 @@ export function Ribbon({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Chunky pressable button with the game's solid lip. */
+/** Pressable button with a solid lip. */
 export function Button({
   children,
   onClick,

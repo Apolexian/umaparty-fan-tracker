@@ -1,7 +1,7 @@
 // Create the first officer account.
 //
-//   npm run seed-admin -- --username ivan --password '...' --name Ivan
-//   npm run seed-admin -- --remote --username ivan --password '...'
+//   npm run seed-admin -- --username <you> --password '...' --name '<Display>'
+//   npm run seed-admin -- --remote --username <you> --password '...'
 //
 // There is no self-signup: this bootstraps the first admin, who then creates
 // everyone else in the admin area (D012).

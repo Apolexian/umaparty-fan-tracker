@@ -7,7 +7,7 @@
 //
 // It projects only — the real moves happen in-game. See D005-D008.
 
-/** Slots per club, confirmed by Ivan. Overridable per club — see D018. */
+/** Slots per club, confirmed. Overridable per club — see D018. */
 export const CLUB_CAPACITY = 30;
 
 /** How close to a boundary counts as "on the bubble", in places. */

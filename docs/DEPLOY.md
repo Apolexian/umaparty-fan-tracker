@@ -89,7 +89,7 @@ minutes — most of it process-spawn overhead, not the API. Safe to re-run.
 ## 7. Create your officer account
 
 ```bash
-npm run seed-admin -- --remote --username ivan --password 'something-long' --name Ivan
+npm run seed-admin -- --remote --username <you> --password '<something-long>' --name '<Display Name>'
 ```
 
 Then sign in at `/officers` and create accounts for the other officers from

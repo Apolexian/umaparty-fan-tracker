@@ -10,27 +10,13 @@
 import type { Env } from "./types.ts";
 
 /**
- * PBKDF2 rounds.
+ * PBKDF2 rounds. OWASP recommends 210,000; that costs ~25ms CPU and the Workers
+ * free plan caps a request at 10ms (not configurable — `limits.cpu_ms` is
+ * rejected with code 100328), so every login threw. 50,000 measures ~5.3ms.
  *
- * OWASP recommends 210,000 for PBKDF2-SHA256. We cannot use it: that costs
- * ~25ms of CPU and the Workers **free plan caps a request at 10ms**, which is
- * not configurable (`limits.cpu_ms` is rejected with code 100328). At 210k
- * every login died with a raw 1101 exception.
- *
- * 50,000 measures ~5.3ms, leaving headroom for the D1 round-trips in the same
- * request. Exactly one derivation runs per login attempt, including the dummy
- * hash for unknown users, so this is the whole budget.
- *
- * The compensating controls are real: a 12-character minimum, per-user salts,
- * and login rate limiting per ip+username. The exposure if a hash were cracked
- * is edit access to a fan-tracking roster — no payments, no personal data
- * beyond public in-game names.
- *
- * `pw_iters` is stored per row, so raising this later upgrades accounts as
- * their owners change password rather than locking anyone out. If the account
- * ever moves to a paid plan, put it back to 210,000. The stronger fix without
- * paying is client-side stretching (browser derives a key, server hashes that
- * cheaply) — more moving parts than this project currently warrants.
+ * Weaker than recommended, mitigated by a 12-char minimum, per-user salts and
+ * login rate limiting. Stored per row, so raising it later upgrades accounts as
+ * people change password. Put it back to 210,000 on a paid plan.
  */
 export const PBKDF2_ITERATIONS = 50_000;
 const SESSION_DAYS = 30;

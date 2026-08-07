@@ -11,14 +11,7 @@ interface StandingsResponse {
   placements: Placement[];
 }
 
-/**
- * The whole tracking sheet, on one screen, clickable.
- *
- * This is the view the clubs already think in — five columns, ranked, average
- * daily fans and the change since yesterday. Members recognise it instantly
- * because it is the screenshot they have been sent every day. Search sits above
- * it for anyone who just wants their own row.
- */
+/** The tracking sheet, on one screen, clickable. */
 export function Home() {
   const clubs = useApi<{ ymd: number; clubs: ClubSummary[] }>("clubs");
   const standings = useApi<StandingsResponse>("standings");
@@ -161,7 +154,7 @@ function MemberSearch({ clubs }: { clubs: ClubSummary[] }) {
               navigate(`/m/${results[0].friend_viewer_id}`);
             }
           }}
-          placeholder="Find yourself — current or former name"
+          placeholder="Search"
           aria-label="Search for a member by name"
           className="w-full bg-transparent text-base outline-none placeholder:text-ink-400"
         />

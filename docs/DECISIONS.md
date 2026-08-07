@@ -62,7 +62,7 @@ member who renamed can still find themselves.
 ---
 
 ## D005 — Promotion sorts on MTD average daily fans
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 Not total monthly gain (punishes anyone who joined late) and not lifetime
 `fan_count` (favours veterans regardless of current activity).
@@ -70,7 +70,7 @@ Not total monthly gain (punishes anyone who joined late) and not lifetime
 ---
 
 ## D006 — Leaders are pinned to their club but still occupy their rank
-**2026-08-07 · Ivan · ACTIVE — generalised by [D021](#d021)**
+**2026-08-07 · ACTIVE — generalised by [D021](#d021)**
 
 Leaders keep their seat through the reshuffle. They are **not** removed from the
 sorted list first — they count against their club's 30 slots, so a low-ranked
@@ -81,7 +81,7 @@ The displacement mechanic here is unchanged; D021 extends it to non-leaders.
 ---
 
 ## D007 — Club slot order and capacity
-**2026-08-07 · Ivan (sheet, left to right) · SUPERSEDED BY [D020](#d020)**
+**2026-08-07 · from the sheet, left to right · SUPERSEDED BY [D020](#d020)**
 
 The order below was the starting point. It is no longer fixed in code: clubs,
 their order, their capacity and their pool membership are officer-editable data
@@ -96,12 +96,12 @@ their order, their capacity and their pool membership are officer-editable data
 | 5 | 877539742 | カック・サドル |
 
 30 slots each (150 total). Current membership is 30/30/30/29/28 = 147.
-Capacity of 30 confirmed by Ivan — see [D018](#d018).
+Capacity of 30 confirmed — see [D018](#d018).
 
 ---
 
 ## D008 — The promotion projection is live and public
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 Every member sees where they would land if the reshuffle happened today,
 updated daily — not officer-only, not a month-end snapshot.
@@ -142,7 +142,7 @@ ingestion. One Worker serves static assets, the API, and the cron.
 ---
 
 ## D012 — Members unauthenticated; officers use username + password
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 Member-facing pages are fully public with no gate. Anyone with the URL sees
 every member name and fan count — the same data chronogenesis.net already
@@ -154,7 +154,7 @@ per-user salt). No self-signup; admins create accounts.
 ---
 
 ## D013 — React here, though `umaguide` is Vue/VitePress
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 Standalone app, no shared code. Chart stack still mirrors `umaguide`
 (chart.js + `chartjs-plugin-crosshair`) to keep one charting idiom.
@@ -162,14 +162,14 @@ Standalone app, no shared code. Chart stack still mirrors `umaguide`
 ---
 
 ## D014 — Commits carry no Claude co-author trailer
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 Conventional Commits, no trailers.
 
 ---
 
 ## D015 — Backfill from the API only
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 `month_filter` exposes 14 months per club via `club_data_by_month`, which
 predates the sheet. No Google Sheets import.
@@ -177,7 +177,7 @@ predates the sheet. No Google Sheets import.
 ---
 
 ## D016 — The MTD denominator is days active in the club <a id="d016"></a>
-**2026-08-07 · KoYu1 (Discord), relayed by Ivan · verified · ACTIVE**
+**2026-08-07 · KoYu1 (Discord), relayed from Discord · verified · ACTIVE**
 
 > "It counts from the day the data start… it runs a check to see where the
 > first entry is, and last entry, and takes that as the date range."
@@ -230,9 +230,9 @@ heuristic for backfilled months.
 ---
 
 ## D018 — Club capacity is 30 <a id="d018"></a>
-**2026-08-07 · Ivan · CONFIRMED**
+**2026-08-07 · CONFIRMED**
 
-Confirmed by Ivan: 30 slots per club. Current counts are 30/30/30/29/28 = 147
+Confirmed: 30 slots per club. Current counts are 30/30/30/29/28 = 147
 against 150.
 
 Still stored as a per-club column rather than a constant, so officers can
@@ -243,12 +243,12 @@ dropped.
 ---
 
 ## D019 — No minimum-days guard
-**2026-08-07 · Ivan · DECIDED — no guard**
+**2026-08-07 · DECIDED — no guard**
 
 Dividing by days-active (D016) means someone who joined yesterday with one
 strong day can outrank a member who has ground all month.
 
-Ivan's call: **leave it.** No minimum-days threshold, no provisional flag, no
+Decision: **leave it.** No minimum-days threshold, no provisional flag, no
 fallback to last month's average. A member is ranked on the rate they have
 actually achieved in their current club, however few days that covers.
 
@@ -258,7 +258,7 @@ declined, not overlooked.
 ---
 
 ## D020 — Clubs are data, not code: officers add, reorder and resize them <a id="d020"></a>
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 The `clubs` table is the source of truth for which clubs exist, their running
 order, their capacity, and whether they take part in the reshuffle at all
@@ -277,7 +277,7 @@ the reshuffle pool at all:
   most recent addition
 
 With it in the pool, 72 of 147 members (49%) would change club; with it out,
-42 of 119 (35%). Seeded in the pool at slot 5 pending Ivan's decision.
+42 of 119 (35%). Seeded in the pool at slot 5 pending a decision.
 
 **This question answers itself at the next reshuffle.** `club_stint` records
 every cross-club move from go-live onward, so after the first reshuffle we
@@ -289,7 +289,7 @@ value is a guess that officers can change in the admin area at any time.
 ---
 
 ## D021 — Officers can pin any member, not just leaders <a id="d021"></a>
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 Leaders were a special case of a more general need: holding a member in a club
 through the reshuffle regardless of rank — someone who asked to stay put, an
@@ -307,7 +307,7 @@ Kept as history (`unset_at`) so past projections stay reproducible.
 ---
 
 ## D022 — Officers hand-edit the roster; the algorithm only proposes <a id="d022"></a>
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 The promotion projection is a **proposal**, not a verdict. Officers get a
 drag-and-drop roster editor and can move any member into any club before the
@@ -433,16 +433,16 @@ from go-live.
 ---
 
 ## D028 — Club history is hidden until we have observed a real move
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · ACTIVE**
 
 The member page had a "Club history" section from day one. With a fresh
 database every member has exactly one stint, seeded from the API's `join_time`
 (D023), so it rendered as e.g. "UmaParty · 2 September 2025 → now".
 
 That is an assertion of unbroken membership since that date, which
-chronogenesis does not actually know and which Ivan confirmed is often wrong —
+chronogenesis does not actually know and which is often wrong in practice —
 `join_time` is the club's own record and does not survive the moves we care
-about. Ivan: *"club history seems to just be incorrect or incomplete… if we
+about. \*"club history seems to just be incorrect or incomplete… if we
 can't derive this from chrono then no point having it."*
 
 The section now renders only when a member has **more than one** stint, i.e.
