@@ -6,10 +6,17 @@
 
 -- ---------------------------------------------------------------- clubs ----
 
+-- Officers add, remove, reorder and resize clubs at runtime, so this table is
+-- the source of truth for which clubs exist — the ingest iterates it rather
+-- than any hardcoded list. The rows below are only a starting point. (D020)
 CREATE TABLE clubs (
   circle_id            INTEGER PRIMARY KEY,
   name                 TEXT    NOT NULL,
-  slot_order           INTEGER NOT NULL,  -- 1..5, promotion order (UmaParty=1)
+  slot_order           INTEGER NOT NULL,  -- 1 = top club; officer-editable
+  capacity             INTEGER NOT NULL DEFAULT 30,
+  in_pool              INTEGER NOT NULL DEFAULT 1,  -- 0 = tracked, not reshuffled
+  added_by             INTEGER,           -- officer who added it, NULL for seed
+  added_at             TEXT,
   comment              TEXT,
   member_num           INTEGER,
   policy               INTEGER,
@@ -138,15 +145,54 @@ CREATE TABLE sessions (
   user_agent TEXT
 );
 
--- Kept as history (unset_at) so a past month's promotion projection stays
--- reproducible after a leader changes.
-CREATE TABLE club_leaders (
+-- Members held in a club through the reshuffle regardless of rank.
+--
+-- 'leader' pins are the club leaders; 'manual' pins are anyone else officers
+-- choose to hold in place — someone who asked to stay put, an alt account, a
+-- member mid-negotiation. Both consume a slot and displace by rank, so they
+-- share one table rather than special-casing leaders. (D006, D021)
+--
+-- Kept as history (unset_at) so a past month's projection stays reproducible.
+CREATE TABLE member_pins (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   circle_id        INTEGER NOT NULL,
   friend_viewer_id INTEGER NOT NULL,
+  kind             TEXT    NOT NULL DEFAULT 'manual',  -- 'leader' | 'manual'
+  reason           TEXT,
   set_by           INTEGER NOT NULL,
   set_at           TEXT    NOT NULL,
   unset_at         TEXT
+);
+
+-- The reshuffle plan officers actually execute.
+--
+-- Seeded from the projection, then hand-edited by drag and drop: the algorithm
+-- proposes, officers dispose. Overrides are persisted per member so a plan
+-- survives the nightly re-projection, and `source` records whether a placement
+-- came from the algorithm or from a human. (D022)
+CREATE TABLE roster_plans (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  year_month   INTEGER NOT NULL,          -- YYYYMM the plan is for
+  status       TEXT    NOT NULL DEFAULT 'draft',  -- 'draft' | 'final'
+  note         TEXT,
+  created_by   INTEGER NOT NULL,
+  created_at   TEXT    NOT NULL,
+  finalised_by INTEGER,
+  finalised_at TEXT,
+  UNIQUE (year_month)
+);
+
+CREATE TABLE roster_plan_entries (
+  plan_id          INTEGER NOT NULL,
+  friend_viewer_id INTEGER NOT NULL,
+  circle_id        INTEGER,              -- NULL = waitlisted / unplaced
+  position         INTEGER NOT NULL DEFAULT 0,   -- order within the club
+  source           TEXT    NOT NULL DEFAULT 'projected',  -- 'projected' | 'manual'
+  /** Where the algorithm put them, kept so the UI can show what was changed. */
+  projected_circle_id INTEGER,
+  moved_by         INTEGER,
+  moved_at         TEXT,
+  PRIMARY KEY (plan_id, friend_viewer_id)
 );
 
 CREATE TABLE notices (
@@ -184,17 +230,28 @@ CREATE INDEX idx_member_names_name  ON member_names (name);
 CREATE INDEX idx_stint_member       ON club_stint (friend_viewer_id, start_ymd);
 CREATE INDEX idx_stint_open         ON club_stint (circle_id, end_ymd);
 CREATE INDEX idx_notices_open       ON notices (done_at, created_at);
+CREATE INDEX idx_plan_entries_club  ON roster_plan_entries (plan_id, circle_id, position);
 CREATE INDEX idx_sessions_expiry    ON sessions (expires_at);
 CREATE INDEX idx_ingest_recent      ON ingest_runs (circle_id, started_at);
-CREATE INDEX idx_leaders_current    ON club_leaders (circle_id, unset_at);
+CREATE INDEX idx_pins_current       ON member_pins (unset_at, circle_id);
+CREATE INDEX idx_pins_member        ON member_pins (friend_viewer_id, unset_at);
+CREATE INDEX idx_clubs_pool         ON clubs (in_pool, slot_order);
 CREATE INDEX idx_login_attempts     ON login_attempts (key, at);
 
 -- ------------------------------------------------------------- club seed ----
--- slot_order is the promotion order, left-to-right as in the tracking sheet.
+-- Starting order, left-to-right as in the tracking sheet. Officers can
+-- reorder, resize, add and remove clubs from the admin area; nothing else in
+-- the codebase hardcodes this list.
+--
+-- カック・サドル's position is explicitly NOT settled. Its members span overall
+-- ranks 3-147 with no banding, while the other four band cleanly (medians
+-- 22/50/86/116), which is what a fans-sorted reshuffle produces. Its club rank
+-- (1016) also beats UmaFourty's (1385) despite sitting below it. It is seeded
+-- in the pool at slot 5 pending a decision. (D020)
 
-INSERT INTO clubs (circle_id, name, slot_order, is_active) VALUES
-  (665160774, 'UmaParty',      1, 1),
-  (720848953, 'TwomaParty',    2, 1),
-  (928261417, 'UmaPaThree',    3, 1),
-  (201002484, 'UmaFourty',     4, 1),
-  (877539742, 'カック・サドル', 5, 1);
+INSERT INTO clubs (circle_id, name, slot_order, capacity, in_pool, is_active) VALUES
+  (665160774, 'UmaParty',      1, 30, 1, 1),
+  (720848953, 'TwomaParty',    2, 30, 1, 1),
+  (928261417, 'UmaPaThree',    3, 30, 1, 1),
+  (201002484, 'UmaFourty',     4, 30, 1, 1),
+  (877539742, 'カック・サドル', 5, 30, 1, 1);

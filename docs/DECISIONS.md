@@ -70,16 +70,22 @@ Not total monthly gain (punishes anyone who joined late) and not lifetime
 ---
 
 ## D006 — Leaders are pinned to their club but still occupy their rank
-**2026-08-07 · Ivan · ACTIVE**
+**2026-08-07 · Ivan · ACTIVE — generalised by [D021](#d021)**
 
 Leaders keep their seat through the reshuffle. They are **not** removed from the
 sorted list first — they count against their club's 30 slots, so a low-ranked
 leader displaces someone who earned the slot, and that person cascades down.
 
+The displacement mechanic here is unchanged; D021 extends it to non-leaders.
+
 ---
 
 ## D007 — Club slot order and capacity
-**2026-08-07 · Ivan (sheet, left to right) · ACTIVE**
+**2026-08-07 · Ivan (sheet, left to right) · SUPERSEDED BY [D020](#d020)**
+
+The order below was the starting point. It is no longer fixed in code: clubs,
+their order, their capacity and their pool membership are officer-editable data
+(D020), and カック・サドル's position specifically is unresolved.
 
 | slot | circle_id | name |
 |---|---|---|
@@ -184,13 +190,19 @@ A mid-month move resets that month's count.
 
 Validated across all 30 UmaParty members against the 08/06 sheet:
 
-| denominator | mean abs error | worst |
-|---|---|---|
-| ÷ day-of-month | 5.85% | **20.6%** (every mover) |
-| ÷ days active | **2.86%** | 7.0% |
+| denominator | mean | p90 | worst |
+|---|---|---|---|
+| ÷ day-of-month | 6.46% | 18.97% | 20.61% |
+| ÷ days active | **3.23%** | **6.57%** | 13.97% |
+
+Per-mover, the difference is stark: cluegi 2.9% vs 19.1%, rennnnnnnnnnnko 4.7%
+vs 20.6%, vae 0.7% vs 16.1%, spadez 0.0% vs 16.6%, Lia 0.3% vs 16.9%.
 
 The residual ~3% is chrono re-interpolating since the snapshot and affects
-movers and non-movers alike.
+movers and non-movers alike. The 13.97% worst case is **FineMo＠Aclone, who is
+equally wrong under both denominators** — chrono revised their day-6 figure
+after the sheet snapshot, so that member carries no signal about the formula.
+`tests/derive.test.ts` therefore bounds mean and p90 rather than max.
 
 This matters because the wrong divisor is **correct for 25 of 30 members** and
 wrong only for the five who moved clubs — it would have passed a casual eyeball
@@ -217,12 +229,12 @@ heuristic for backfilled months.
 
 ---
 
-## D018 — Club capacity is exactly 30 <a id="d018"></a>
-**OPEN — assumed, not confirmed**
+## D018 — Club capacity defaults to 30, per club <a id="d018"></a>
+**2026-08-07 · ACTIVE**
 
-Current counts are 30/30/30/29/28. The code treats 30 as the cap and routes
-anything past 150 to a flagged waitlist rather than dropping people. Needs
-confirming with Ivan.
+Current counts are 30/30/30/29/28. Capacity is a per-club column defaulting to
+30, editable by officers, and anything past total capacity is routed to a
+flagged waitlist rather than dropped.
 
 ---
 
@@ -231,8 +243,76 @@ confirming with Ivan.
 
 Dividing by days-active (D016) means someone who joined yesterday with one
 strong day can outrank a member who has ground all month. Harmless today (all
-five current movers have 5 of 6 days) but it will bite on a reshuffle day.
+current movers have 5 of 6 days) but it will bite on a reshuffle day.
 
 Suggestion, not implemented: rank members with fewer than ~3 active days on
 their previous month's average, flagged provisional. This is a fairness rule
 for the community, not a technical call — Ivan's to make.
+
+---
+
+## D020 — Clubs are data, not code: officers add, reorder and resize them <a id="d020"></a>
+**2026-08-07 · Ivan · ACTIVE**
+
+The `clubs` table is the source of truth for which clubs exist, their running
+order, their capacity, and whether they take part in the reshuffle at all
+(`in_pool`). The ingest iterates that table; nothing hardcodes the club list.
+Officers can add a club ad-hoc by circle id.
+
+**カック・サドル's position is not final.** Evidence that it may not belong in
+the reshuffle pool at all:
+
+- its members span overall ranks **3–147** with no banding, while the other
+  four band cleanly at medians 22 / 50 / 86 / 116 — which is what a
+  fans-sorted reshuffle actually produces
+- its top member (oxateu) ranks **#3 of 147**, sitting in the bottom club
+- its club rank (1016) beats UmaFourty's (1385) despite sitting below it
+- it was created 2025-08-03, a day *before* UmaFourty, so it is not simply the
+  most recent addition
+
+With it in the pool, 72 of 147 members (49%) would change club; with it out,
+42 of 119 (35%). Seeded in the pool at slot 5 pending Ivan's decision.
+
+---
+
+## D021 — Officers can pin any member, not just leaders <a id="d021"></a>
+**2026-08-07 · Ivan · ACTIVE**
+
+Leaders were a special case of a more general need: holding a member in a club
+through the reshuffle regardless of rank — someone who asked to stay put, an
+alt account, a member mid-negotiation.
+
+One `member_pins` table with `kind` of `leader` or `manual`. Both behave
+identically: the pin consumes a slot in its club and therefore displaces
+someone who out-ranked them, who cascades down (D006). Pins are excluded from
+a club's entry threshold, since a pinned member did not earn their place by
+rank and their average says nothing about what it takes to get in.
+
+Kept as history (`unset_at`) so past projections stay reproducible.
+
+
+---
+
+## D022 — Officers hand-edit the roster; the algorithm only proposes <a id="d022"></a>
+**2026-08-07 · Ivan · ACTIVE**
+
+The promotion projection is a **proposal**, not a verdict. Officers get a
+drag-and-drop roster editor and can move any member into any club before the
+reshuffle is executed in-game.
+
+- A `roster_plans` row per month, seeded from `projectPromotion`, then edited.
+- `roster_plan_entries.source` records `projected` vs `manual`, and
+  `projected_circle_id` keeps the algorithm's original choice, so the UI can
+  always show exactly what a human changed and offer a reset.
+- Hand edits persist across the nightly re-projection — re-running the
+  algorithm must never silently undo an officer's decision.
+- Capacity is enforced as a *warning*, not a hard block: officers are allowed
+  to knowingly overfill a club, since the game is the real constraint and they
+  may be mid-negotiation.
+- A plan is `draft` until finalised, then frozen as the record of what was
+  actually done that month.
+
+This differs from pinning (D021): a pin is a standing rule that survives into
+future months' projections, whereas a plan edit is a one-off override for a
+single month. Both exist because they answer different questions — "always keep
+this person here" versus "this month, do it differently".

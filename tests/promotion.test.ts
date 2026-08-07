@@ -9,6 +9,7 @@ import {
   projectPromotion,
   type PromotionCandidate,
   type PromotionClub,
+  type Pin,
 } from "../src/worker/promotion.ts";
 import type { ClubProfileResponse } from "../src/worker/types.ts";
 
@@ -72,7 +73,7 @@ describe("real roster", () => {
 
 describe("projectPromotion", () => {
   it("fills clubs in slot order, 30 at a time", () => {
-    const result = projectPromotion(candidates, clubs, new Map());
+    const result = projectPromotion(candidates, clubs);
     const sizes = result.clubs.map((c) => c.members.length);
 
     // 147 members into 30-slot clubs: 30/30/30/30/27.
@@ -81,7 +82,7 @@ describe("projectPromotion", () => {
   });
 
   it("puts the highest averages in the top club", () => {
-    const result = projectPromotion(candidates, clubs, new Map());
+    const result = projectPromotion(candidates, clubs);
     const top = result.clubs[0]!;
     const second = result.clubs[1]!;
 
@@ -91,7 +92,7 @@ describe("projectPromotion", () => {
   });
 
   it("ranks every member exactly once", () => {
-    const result = projectPromotion(candidates, clubs, new Map());
+    const result = projectPromotion(candidates, clubs);
     const ranks = result.placements.map((p) => p.rankOverall).sort((a, b) => a - b);
     expect(ranks).toEqual(Array.from({ length: candidates.length }, (_, i) => i + 1));
   });
@@ -102,20 +103,20 @@ describe("projectPromotion", () => {
     const ranked = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);
     const lowRanked = ranked[100]!; // deep in the fourth club by rank
 
-    const noLeaders = projectPromotion(candidates, clubs, new Map());
+    const noLeaders = projectPromotion(candidates, clubs);
     const displaced = noLeaders.clubs[0]!.members.at(-1)!;
 
     const withLeader = projectPromotion(
       candidates,
       clubs,
-      new Map([[UMAPARTY, lowRanked.friendViewerId]]),
+      [{ friendViewerId: lowRanked.friendViewerId, circleId: UMAPARTY, kind: "leader" }],
     );
 
     const leaderPlacement = withLeader.placements.find(
       (p) => p.friendViewerId === lowRanked.friendViewerId,
     )!;
     expect(leaderPlacement.projectedCircleId).toBe(UMAPARTY);
-    expect(leaderPlacement.isLeader).toBe(true);
+    expect(leaderPlacement.pinnedAs).toBe("leader");
 
     // UmaParty is still full, and the member who previously held the last slot
     // has been pushed into the next club down.
@@ -133,7 +134,7 @@ describe("projectPromotion", () => {
     const result = projectPromotion(
       candidates,
       clubs,
-      new Map([[UMAPARTY, lowRanked.friendViewerId]]),
+      [{ friendViewerId: lowRanked.friendViewerId, circleId: UMAPARTY, kind: "leader" }],
     );
 
     // The pinned leader's average is far below everyone else in the club; the
@@ -149,7 +150,7 @@ describe("projectPromotion", () => {
       mtdAvg: 1, // last by a mile
     }));
 
-    const result = projectPromotion([...candidates, ...extra], clubs, new Map());
+    const result = projectPromotion([...candidates, ...extra], clubs);
 
     expect(result.waitlist).toHaveLength(2); // 152 members, 150 slots
     expect(result.placements).toHaveLength(152);
@@ -159,7 +160,7 @@ describe("projectPromotion", () => {
   });
 
   it("reports direction of movement against the current club", () => {
-    const result = projectPromotion(candidates, clubs, new Map());
+    const result = projectPromotion(candidates, clubs);
 
     for (const placement of result.placements) {
       const from = clubs.find((c) => c.circleId === placement.currentCircleId)!.slotOrder;
@@ -172,7 +173,7 @@ describe("projectPromotion", () => {
   });
 
   it("quotes a gap that would actually clear the club above", () => {
-    const result = projectPromotion(candidates, clubs, new Map());
+    const result = projectPromotion(candidates, clubs);
 
     const second = result.clubs[1]!;
     const topEntry = result.clubs[0]!.entryThreshold!;
@@ -185,14 +186,14 @@ describe("projectPromotion", () => {
   });
 
   it("gives the top club no gap to quote", () => {
-    const result = projectPromotion(candidates, clubs, new Map());
+    const result = projectPromotion(candidates, clubs);
     for (const member of result.clubs[0]!.members) {
       expect(member.gapToNextClub).toBeNull();
     }
   });
 
   it("flags members sitting near a club boundary", () => {
-    const result = projectPromotion(candidates, clubs, new Map());
+    const result = projectPromotion(candidates, clubs);
     const bubble = result.placements.filter((p) => p.onBubble).map((p) => p.rankOverall);
 
     // Boundaries at 30/60/90/120, three places either side, inclusive.
@@ -211,20 +212,149 @@ describe("projectPromotion", () => {
       mtdAvg: 5000,
     }));
 
-    const a = projectPromotion(tied, clubs, new Map());
-    const b = projectPromotion([...tied].reverse(), clubs, new Map());
+    const a = projectPromotion(tied, clubs);
+    const b = projectPromotion([...tied].reverse(), clubs);
 
     expect(a.placements.map((p) => p.friendViewerId)).toEqual(
       b.placements.map((p) => p.friendViewerId),
     );
   });
 
+  // D021: officers can hold any member in place, not just leaders. Behaves
+  // identically to a leader pin — consumes a slot and displaces by rank.
+  it("honours a manual officer pin", () => {
+    const ranked = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);
+    const wouldBeTop = ranked[0]!;
+
+    const result = projectPromotion(candidates, clubs, [
+      { friendViewerId: wouldBeTop.friendViewerId, circleId: KAKKU, kind: "manual" },
+    ]);
+
+    const placement = result.placements.find(
+      (p) => p.friendViewerId === wouldBeTop.friendViewerId,
+    )!;
+
+    // Still ranked first overall, but held in the club the officer chose.
+    expect(placement.rankOverall).toBe(1);
+    expect(placement.projectedCircleId).toBe(KAKKU);
+    expect(placement.pinnedAs).toBe("manual");
+
+    // Their vacated slot at the top is taken by the next member up.
+    expect(result.clubs[0]!.members).toHaveLength(CLUB_CAPACITY);
+    expect(result.clubs[0]!.members.map((m) => m.friendViewerId)).not.toContain(
+      wouldBeTop.friendViewerId,
+    );
+  });
+
+  it("excludes manual pins from the entry threshold too", () => {
+    const ranked = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);
+    const lowRanked = ranked[120]!;
+
+    const result = projectPromotion(candidates, clubs, [
+      { friendViewerId: lowRanked.friendViewerId, circleId: UMAPARTY, kind: "manual" },
+    ]);
+
+    expect(result.clubs[0]!.entryThreshold!).toBeGreaterThan(lowRanked.mtdAvg);
+  });
+
+  it("ignores a pin naming a club outside the pool", () => {
+    const poolOfFour: PromotionClub[] = clubs.map((c) => ({
+      ...c,
+      inPool: c.circleId !== KAKKU,
+    }));
+    const ranked = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);
+
+    const result = projectPromotion(candidates, poolOfFour, [
+      { friendViewerId: ranked[0]!.friendViewerId, circleId: KAKKU, kind: "manual" },
+    ]);
+
+    const placement = result.placements.find(
+      (p) => p.friendViewerId === ranked[0]!.friendViewerId,
+    )!;
+    expect(placement.pinnedAs).toBeNull();
+    expect(placement.projectedCircleId).toBe(UMAPARTY);
+  });
+
+  // D020: the running order is officer-editable, and whether カック・サドル
+  // belongs in the pool at all is still open.
+  describe("configurable pool and slot order", () => {
+    it("leaves out-of-pool members ranked but unplaced", () => {
+      const poolOfFour: PromotionClub[] = clubs.map((c) => ({
+        ...c,
+        inPool: c.circleId !== KAKKU,
+      }));
+
+      const result = projectPromotion(candidates, poolOfFour);
+
+      expect(result.clubs).toHaveLength(4);
+      expect(result.outOfPool).toHaveLength(28);
+      for (const placement of result.outOfPool) {
+        expect(placement.projectedCircleId).toBeNull();
+        expect(placement.currentCircleId).toBe(KAKKU);
+        // Still ranked against everyone, so they can see where they stand.
+        expect(placement.rankOverall).toBeGreaterThan(0);
+      }
+
+      // 119 pooled members into 4 clubs of 30.
+      expect(result.clubs.map((c) => c.members.length)).toEqual([30, 30, 30, 29]);
+    });
+
+    it("respects a reordered slot order", () => {
+      // Move カック・サドル from last to third.
+      const reordered: PromotionClub[] = clubs.map((c) => {
+        if (c.circleId === KAKKU) return { ...c, slotOrder: 3 };
+        if (c.slotOrder === 3) return { ...c, slotOrder: 4 };
+        if (c.slotOrder === 4) return { ...c, slotOrder: 5 };
+        return c;
+      });
+
+      const result = projectPromotion(candidates, reordered);
+
+      expect(result.clubs.map((c) => c.name)).toEqual([
+        "UmaParty",
+        "TwomaParty",
+        "カック・サドル",
+        "UmaPaThree",
+        "UmaFourty",
+      ]);
+      // Third-best band of members now lands in カック・サドル.
+      expect(result.clubs[2]!.members).toHaveLength(CLUB_CAPACITY);
+    });
+
+    it("supports an ad-hoc sixth club", () => {
+      const withNewClub: PromotionClub[] = [
+        ...clubs,
+        { circleId: 111111111, name: "UmaPaSix", slotOrder: 6 },
+      ];
+
+      const result = projectPromotion(candidates, withNewClub);
+
+      expect(result.clubs).toHaveLength(6);
+      // 147 members, 180 slots: the new club sits empty until people move.
+      expect(result.clubs.map((c) => c.members.length)).toEqual([30, 30, 30, 30, 27, 0]);
+      expect(result.clubs[5]!.entryThreshold).toBeNull();
+      expect(result.waitlist).toHaveLength(0);
+    });
+
+    it("respects a per-club capacity override", () => {
+      const smallTop: PromotionClub[] = clubs.map((c) =>
+        c.circleId === UMAPARTY ? { ...c, capacity: 10 } : c,
+      );
+
+      const result = projectPromotion(candidates, smallTop);
+      expect(result.clubs[0]!.members).toHaveLength(10);
+      expect(result.clubs[1]!.members).toHaveLength(CLUB_CAPACITY);
+    });
+  });
+
   it("handles a leader whose club is already full of leaders", () => {
     // Defensive: two leaders nominated for one club should not overfill it.
     const ranked = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);
-    const leaders = new Map([[UMAPARTY, ranked[50]!.friendViewerId]]);
+    const pins: Pin[] = [
+      { friendViewerId: ranked[50]!.friendViewerId, circleId: UMAPARTY, kind: "leader" },
+    ];
 
-    const result = projectPromotion(candidates, clubs, leaders);
+    const result = projectPromotion(candidates, clubs, pins);
     expect(result.clubs[0]!.members).toHaveLength(CLUB_CAPACITY);
   });
 });
