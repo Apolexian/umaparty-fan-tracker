@@ -18,8 +18,7 @@
     {
       "binding": "DB",
       "database_name": "umaparty",
-      // Replace with the id printed by `npx wrangler d1 create umaparty`.
-      "database_id": "local-placeholder-replace-after-d1-create",
+      "database_id": "f5365a1e-d285-4b0f-bd44-9d2872ac0dfb",
       "migrations_dir": "migrations"
     }
   ],
