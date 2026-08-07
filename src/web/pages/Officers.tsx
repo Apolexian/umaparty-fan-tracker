@@ -40,6 +40,26 @@ interface RosterClub {
   in_pool: number;
 }
 
+interface PublicClub {
+  circle_id: number;
+  name: string;
+  slot_order: number;
+  leader_name: string | null;
+}
+
+interface PinRow {
+  friend_viewer_id: number;
+  circle_id: number;
+  kind: string;
+  name: string | null;
+}
+
+interface SearchHit {
+  friend_viewer_id: number;
+  current_name: string;
+  matchedAlias: string | null;
+}
+
 interface Notice {
   id: number;
   body: string;
@@ -93,6 +113,7 @@ export function Officers() {
       </header>
 
       <RefreshData />
+      <ClubLeaders />
       <Noticeboard />
       <RosterEditor />
       <ChangePassword onSignedOut={() => setOfficer(null)} />
@@ -215,6 +236,131 @@ function ChangePassword({ onSignedOut }: { onSignedOut: () => void }) {
         {error && <ErrorNote message={error} />}
       </form>
     </details>
+  );
+}
+
+/**
+ * Set each club's leader.
+ *
+ * Stored as a `leader` pin, so the reshuffle holds them in place while still
+ * counting them against the club's slots (D006). Chronogenesis has its own idea
+ * of the leader, which is used as the fallback but is often out of date.
+ */
+function ClubLeaders() {
+  const [clubs, setClubs] = useState<PublicClub[]>([]);
+  const [pins, setPins] = useState<PinRow[]>([]);
+  const [editing, setEditing] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<SearchHit[]>([]);
+
+  const reload = useCallback(() => {
+    fetch("/api/clubs")
+      .then((r) => r.json() as Promise<{ clubs: PublicClub[] }>)
+      .then((r) => setClubs(r.clubs));
+    api<{ pins: PinRow[] }>("pins").then((r) => setPins(r.pins));
+  }, []);
+
+  useEffect(reload, [reload]);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setHits([]);
+      return;
+    }
+    const id = setTimeout(() => {
+      fetch(`/api/search?q=${encodeURIComponent(query.trim())}`)
+        .then((r) => r.json() as Promise<{ results: SearchHit[] }>)
+        .then((r) => setHits(r.results));
+    }, 200);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  const leaderPin = (circleId: number) =>
+    pins.find((p) => p.circle_id === circleId && p.kind === "leader");
+
+  async function setLeader(circleId: number, friendViewerId: number) {
+    await api("pins", {
+      method: "POST",
+      body: JSON.stringify({ friendViewerId, circleId, kind: "leader" }),
+    });
+    setEditing(null);
+    setQuery("");
+    reload();
+  }
+
+  return (
+    <section className="space-y-3">
+      <Ribbon>Club leads</Ribbon>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {clubs.map((club) => {
+          const pin = leaderPin(club.circle_id);
+          const name = pin?.name ?? club.leader_name;
+          const isEditing = editing === club.circle_id;
+
+          return (
+            <div key={club.circle_id} className="card px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <ClubChip name={club.name} slotOrder={club.slot_order} />
+                <Button
+                  tone="quiet"
+                  className="ml-auto !px-2 !py-1 text-xs"
+                  onClick={() => {
+                    setEditing(isEditing ? null : club.circle_id);
+                    setQuery("");
+                  }}
+                >
+                  {isEditing ? "Cancel" : "Change"}
+                </Button>
+              </div>
+
+              <div className="mt-1.5 text-sm">
+                {name ? (
+                  <span className="font-semibold text-ink-900">{name}</span>
+                ) : (
+                  <span className="text-ink-400">no lead set</span>
+                )}
+                {!pin && name && (
+                  <span className="ml-1.5 text-[11px] text-ink-400">from chrono</span>
+                )}
+              </div>
+
+              {isEditing && (
+                <div className="mt-2">
+                  <input
+                    autoFocus
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search a member"
+                    className="card w-full bg-cream-50 px-3 py-1.5 text-sm outline-none focus:border-teal-400"
+                  />
+                  <ul className="mt-1 max-h-44 overflow-y-auto">
+                    {hits.map((hit) => (
+                      <li key={hit.friend_viewer_id}>
+                        <button
+                          onClick={() => setLeader(club.circle_id, hit.friend_viewer_id)}
+                          className="w-full rounded-[6px] px-2 py-1 text-left text-sm hover:bg-teal-50"
+                        >
+                          {hit.current_name}
+                          {hit.matchedAlias && (
+                            <span className="ml-1 text-[11px] text-ink-400">
+                              was {hit.matchedAlias}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                    {query.trim().length >= 2 && hits.length === 0 && (
+                      <li className="px-2 py-1 text-xs text-ink-400">no match</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

@@ -13,6 +13,8 @@ export interface ClubSummary {
   comment: string | null;
   tracked_members: number;
   club_daily_avg: number | null;
+  leader_viewer_id: number | null;
+  leader_name: string | null;
 }
 
 export interface LeaderboardRow {

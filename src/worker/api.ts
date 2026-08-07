@@ -21,8 +21,21 @@ export async function handleApi(
     return json({ error: "method not allowed" }, 405);
   }
 
+  // The cache key carries the newest data day, so an ingest that advances the
+  // day invalidates every entry at once. Without this a response cached just
+  // before the daily pull kept serving yesterday's numbers for a full hour --
+  // which is exactly when people look, and how four clubs sat empty on the
+  // board long after their data had landed.
+  //
+  // The extra lookup is MAX() on an indexed column, far cheaper than the
+  // queries it saves.
   const cache = caches.default;
-  const cached = await cache.match(request);
+  const dataDay = await latestDay(env);
+  const cacheKey = new Request(`${url.origin}${url.pathname}${url.search}${url.search ? "&" : "?"}__d=${dataDay}`, {
+    method: "GET",
+  });
+
+  const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
   let response: Response;
@@ -36,7 +49,7 @@ export async function handleApi(
   }
 
   if (response.ok) {
-    ctx.waitUntil(cache.put(request, response.clone()));
+    ctx.waitUntil(cache.put(cacheKey, response.clone()));
   }
   return response;
 }
@@ -99,11 +112,17 @@ async function getClubs(env: Env) {
   const { results } = await env.DB.prepare(
     `SELECT c.circle_id, c.name, c.slot_order, c.capacity, c.in_pool, c.rank, c.rank_diff,
             c.fan_count, c.member_num, c.comment, c.updated_at,
+            COALESCE(pin.friend_viewer_id, c.leader_viewer_id_api) AS leader_viewer_id,
+            COALESCE(pm.name, lm.name) AS leader_name,
             (SELECT COUNT(*) FROM member_day md WHERE md.circle_id = c.circle_id AND md.ymd = ?)
               AS tracked_members,
             (SELECT SUM(md.mtd_avg) FROM member_day md
               WHERE md.circle_id = c.circle_id AND md.ymd = ?) AS club_daily_avg
        FROM clubs c
+       LEFT JOIN member_pins pin
+         ON pin.circle_id = c.circle_id AND pin.kind = 'leader' AND pin.unset_at IS NULL
+       LEFT JOIN members pm ON pm.friend_viewer_id = pin.friend_viewer_id
+       LEFT JOIN members lm ON lm.friend_viewer_id = c.leader_viewer_id_api
       WHERE c.is_active = 1
       ORDER BY c.slot_order`,
   )

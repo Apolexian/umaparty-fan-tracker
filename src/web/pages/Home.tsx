@@ -74,15 +74,31 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
 
   return (
     <div className="card min-w-[17rem] flex-1 overflow-hidden">
-      <Link
-        to={`/club/${club.circle_id}`}
-        className="flex items-center gap-2 border-b-2 border-cream-300 bg-cream-100 px-3 py-2 hover:bg-cream-200"
-      >
-        <ClubChip name={club.name} slotOrder={club.slot_order} />
-        <span className="tnum ml-auto text-xs font-extrabold text-gold-700">
-          {club.rank ? `#${club.rank}` : "—"}
-        </span>
-      </Link>
+      <div className="border-b-2 border-cream-300 bg-cream-100 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Link to={`/club/${club.circle_id}`} className="hover:opacity-80">
+            <ClubChip name={club.name} slotOrder={club.slot_order} />
+          </Link>
+          <span className="tnum ml-auto text-xs font-extrabold text-gold-700">
+            {club.rank ? `#${club.rank}` : "—"}
+          </span>
+        </div>
+        {club.leader_name && (
+          <div className="mt-1 truncate text-[11px] text-ink-500">
+            lead{" "}
+            {club.leader_viewer_id ? (
+              <Link
+                to={`/m/${club.leader_viewer_id}`}
+                className="font-semibold text-ink-700 hover:text-teal-700"
+              >
+                {club.leader_name}
+              </Link>
+            ) : (
+              <span className="font-semibold text-ink-700">{club.leader_name}</span>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-[2.25rem_1fr_4.5rem_4.25rem] gap-1 border-b border-cream-300 px-2 py-1.5 text-[11px] font-bold text-ink-500">
         <span>#</span>
