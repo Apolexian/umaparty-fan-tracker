@@ -381,3 +381,10 @@ reshuffle acts on. Live data, which *is* what the reshuffle acts on, uses stints
 and is exact.
 
 Worth knowing before treating a pre-go-live month as ground truth.
+
+**Heuristic accuracy, measured 2026-08-07:** on the current August data the
+leading-zeros heuristic flags exactly six members as mid-month movers — cluegi,
+rennnnnnnnnnnko, YPurren Chan, vae, spadez and Lia — and all six genuinely
+joined in August according to `join_time`. Zero false positives. So the
+backfill's denominator is accurate in practice today; the stint path guards a
+case that has not yet occurred rather than one currently going wrong.
