@@ -53,8 +53,14 @@ describe("hashPassword", () => {
     expect(replay.hash).toBe(weak.hash);
   }, CPU_BOUND);
 
-  it("uses a non-trivial iteration count by default", async () => {
-    expect(PBKDF2_ITERATIONS).toBeGreaterThanOrEqual(210_000);
+  // Not OWASP's 210,000: that costs ~25ms CPU and the Workers free plan caps a
+  // request at 10ms, which is not configurable. The floor here is the real
+  // constraint — a lower bound that still resists offline attack, and an upper
+  // bound that keeps login inside the CPU budget. Moving outside this range is
+  // a deliberate decision, not a tweak. See auth.ts and D012.
+  it("keeps the iteration count inside the platform's CPU budget", () => {
+    expect(PBKDF2_ITERATIONS).toBeGreaterThanOrEqual(50_000);
+    expect(PBKDF2_ITERATIONS).toBeLessThanOrEqual(80_000);
   });
 
   it("produces a 256-bit hash and 128-bit salt", async () => {
