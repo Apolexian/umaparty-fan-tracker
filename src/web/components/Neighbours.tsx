@@ -1,7 +1,8 @@
 import { Link } from "react-router-dom";
 
 import { compactFans, fullFans } from "../lib/format.ts";
-import type { Placement } from "../lib/api.ts";
+import type { ClubSummary, Placement } from "../lib/api.ts";
+import { ClubChip } from "./Bits.tsx";
 
 /**
  * The people immediately above and below you in the standings.
@@ -13,13 +14,16 @@ import type { Placement } from "../lib/api.ts";
  */
 export function Neighbours({
   placements,
+  clubs,
   viewerId,
   span = 5,
 }: {
   placements: Placement[];
+  clubs: ClubSummary[];
   viewerId: number;
   span?: number;
 }) {
+  const clubOf = new Map(clubs.map((c) => [c.circle_id, c]));
   const index = placements.findIndex((p) => p.friendViewerId === viewerId);
   if (index === -1) return null;
 
@@ -43,7 +47,7 @@ export function Neighbours({
           <li key={peer.friendViewerId}>
             <Link
               to={`/m/${peer.friendViewerId}`}
-              className={`grid grid-cols-[2.5rem_9rem_1fr_5rem] items-center gap-2 rounded-[6px] px-2 py-1 ${
+              className={`grid grid-cols-[2.5rem_8rem_6rem_1fr_5rem] items-center gap-2 rounded-[6px] px-2 py-1 ${
                 you ? "bg-lav-200" : "hover:bg-cream-100"
               }`}
             >
@@ -53,6 +57,15 @@ export function Neighbours({
                 className={`truncate text-sm ${you ? "font-extrabold text-ink-900" : "font-semibold text-ink-700"}`}
               >
                 {peer.name}
+              </span>
+
+              <span className="min-w-0">
+                {clubOf.get(peer.currentCircleId) && (
+                  <ClubChip
+                    name={clubOf.get(peer.currentCircleId)!.name}
+                    slotOrder={clubOf.get(peer.currentCircleId)!.slot_order}
+                  />
+                )}
               </span>
 
               <span className="h-3.5 w-full">

@@ -34,7 +34,7 @@ export function Member() {
   if (error) return <ErrorNote message={error} />;
   if (!data?.member) return <ErrorNote message="Member not found." />;
 
-  const { member, names, stints, days } = data;
+  const { member, stints, days } = data;
   const latest = days.at(-1);
   const currentClub = stints.find((s) => s.end_ymd === null) ?? stints.at(-1);
   const club = currentClub ? clubById.get(currentClub.circle_id) : undefined;
@@ -45,9 +45,6 @@ export function Member() {
   const projectedClub = placement?.projectedCircleId
     ? clubById.get(placement.projectedCircleId)
     : undefined;
-
-  // Only names they no longer use — the current one is already the heading.
-  const formerNames = names.map((n) => n.name).filter((n) => n !== member.name);
 
   // The current month only, so the sparkline shows this month's shape.
   const thisMonth = latest ? Math.floor(latest.ymd / 100) : 0;
@@ -61,12 +58,6 @@ export function Member() {
           {club && <ClubChip name={club.name} slotOrder={club.slot_order} to={`/club/${club.circle_id}`} />}
         </div>
 
-        {formerNames.length > 0 && (
-          <p className="mt-1 text-sm text-ink-500">
-            formerly{" "}
-            <span className="text-ink-700">{formerNames.join(", ")}</span>
-          </p>
-        )}
       </header>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -143,6 +134,7 @@ export function Member() {
             <h2 className="mb-2 font-display text-lg font-bold text-ink-900">Around you</h2>
             <Neighbours
               placements={standings.data.placements}
+              clubs={clubs.data?.clubs ?? []}
               viewerId={member.friend_viewer_id}
             />
           </section>

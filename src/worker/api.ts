@@ -9,6 +9,11 @@ import type { Env } from "./types.ts";
 
 const CACHE_CONTROL = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
 
+// Bump when a response shape changes. The data-day in the cache key handles new
+// data, but not a deploy that adds a field to an existing day — without this,
+// entries cached before the deploy keep being served for up to an hour.
+const CACHE_VERSION = 2;
+
 export async function handleApi(
   request: Request,
   env: Env,
@@ -31,9 +36,10 @@ export async function handleApi(
   // queries it saves.
   const cache = caches.default;
   const dataDay = await latestDay(env);
-  const cacheKey = new Request(`${url.origin}${url.pathname}${url.search}${url.search ? "&" : "?"}__d=${dataDay}`, {
-    method: "GET",
-  });
+  const cacheKey = new Request(
+    `${url.origin}${url.pathname}${url.search}${url.search ? "&" : "?"}__d=${dataDay}&__v=${CACHE_VERSION}`,
+    { method: "GET" },
+  );
 
   const cached = await cache.match(cacheKey);
   if (cached) return cached;

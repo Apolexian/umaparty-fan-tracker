@@ -1,9 +1,11 @@
 import {
+  BarController,
   BarElement,
   CategoryScale,
   Chart as ChartJS,
   Filler,
   LinearScale,
+  LineController,
   LineElement,
   PointElement,
   Tooltip,
@@ -14,12 +16,18 @@ import { Bar, Chart, Line } from "react-chartjs-2";
 
 import { compactFans, fullFans, ymdLabel } from "../lib/format.ts";
 
+// The controllers matter, not just the elements: <Bar> and <Line> register
+// their own, but the generic <Chart> used for the mixed bar+line does not, and
+// omitting them fails only at runtime with `"bar" is not a registered
+// controller` — a blank page that typecheck, build and tests all pass.
 ChartJS.register(
   CategoryScale,
   LinearScale,
-  PointElement,
-  LineElement,
+  BarController,
   BarElement,
+  LineController,
+  LineElement,
+  PointElement,
   Filler,
   Tooltip,
 );
