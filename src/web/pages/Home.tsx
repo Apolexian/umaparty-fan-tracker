@@ -4,7 +4,7 @@ import { Search } from "lucide-react";
 
 import { useApi, type ClubSummary, type Placement, type SearchHit } from "../lib/api.ts";
 import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
-import { ClubChip, Delta, ErrorNote, RankBadge, Ribbon, Spinner } from "../components/Bits.tsx";
+import { ClubChip, Delta, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
 
 interface StandingsResponse {
   ymd: number;
@@ -40,13 +40,14 @@ export function Home() {
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="font-display text-4xl leading-none font-extrabold text-ink-900">
-          Daily Dose of Data
-        </h1>
-        <p className="mt-1.5 text-sm text-ink-500">
-          Every club, every member, updated daily. Tap anyone to see their breakdown.
-        </p>
-        <MemberSearch clubs={clubs.data?.clubs ?? []} />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <h1 className="font-display text-4xl leading-none font-extrabold text-ink-900">
+            Daily Dose of Data
+          </h1>
+          <div className="min-w-64 flex-1">
+            <MemberSearch clubs={clubs.data?.clubs ?? []} />
+          </div>
+        </div>
       </section>
 
       {loading && <Spinner label="Loading the board" />}
@@ -54,17 +55,12 @@ export function Home() {
 
       {clubs.data && standings.data && (
         <section>
-          <div className="mb-3 flex flex-wrap items-baseline gap-3">
-            <Ribbon>The board</Ribbon>
-            <span className="text-xs text-ink-400">
-              Last updated {ymdLong(standings.data.ymd)}
-            </span>
-          </div>
+          <div className="mb-2 text-xs text-ink-400">{ymdLong(standings.data.ymd)}</div>
 
           {/* Scrolls horizontally rather than reflowing: the point is seeing the
               clubs side by side, the way the sheet does. */}
-          <div className="-mx-4 overflow-x-auto px-4 pb-2">
-            <div className="flex min-w-max gap-3">
+          <div className="-mx-5 overflow-x-auto px-5 pb-2">
+            <div className="flex gap-3">
               {clubs.data.clubs.map((club) => (
                 <ClubColumn
                   key={club.circle_id}
@@ -84,7 +80,7 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
   const clubTotal = members.reduce((sum, m) => sum + m.mtdAvg, 0);
 
   return (
-    <div className="card w-[19rem] shrink-0 overflow-hidden">
+    <div className="card min-w-[17rem] flex-1 overflow-hidden">
       <Link
         to={`/club/${club.circle_id}`}
         className="flex items-center gap-2 border-b-2 border-cream-300 bg-cream-100 px-3 py-2 hover:bg-cream-200"
@@ -154,7 +150,7 @@ function MemberSearch({ clubs }: { clubs: ClubSummary[] }) {
   const results = data?.results ?? [];
 
   return (
-    <div className="mt-4">
+    <div className="relative">
       <div className="card flex items-center gap-2 border-2 px-4 py-2.5 focus-within:border-teal-400">
         <Search size={18} className="shrink-0 text-teal-700" aria-hidden />
         <input
@@ -172,7 +168,7 @@ function MemberSearch({ clubs }: { clubs: ClubSummary[] }) {
       </div>
 
       {debounced.length >= 2 && (
-        <div className="mt-2 space-y-1">
+        <div className="absolute z-10 mt-2 w-full max-w-lg space-y-1">
           {results.length === 0 && (
             <p className="px-1 py-2 text-sm text-ink-500">
               Nobody matches “{debounced}”. Try part of the name, or a name you used before.

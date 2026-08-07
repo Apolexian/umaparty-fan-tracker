@@ -12,9 +12,9 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh bg-cream-100">
       <header className="border-b-4 border-teal-600 bg-teal-500">
-        <div className="mx-auto flex max-w-5xl items-center gap-4 px-4 py-3">
+        <div className="flex items-center gap-4 px-5 py-2.5">
           <Link to="/" className="font-display text-xl font-extrabold text-cream-50">
-            Uma<span className="text-gold-300">Party</span>
+            Umaparty
           </Link>
 
           <nav className="ml-auto flex gap-1">
@@ -38,9 +38,9 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
+      <main className="px-5 py-5">{children}</main>
 
-      <footer className="mx-auto flex max-w-5xl items-center gap-3 px-4 pt-4 pb-10 text-xs text-ink-400">
+      <footer className="flex items-center gap-3 px-5 pt-4 pb-8 text-xs text-ink-400">
         <span>Fan data from chronogenesis.net, refreshed daily after 10:00 UTC.</span>
         <Link to="/officers" className="ml-auto hover:text-teal-700">
           Officers

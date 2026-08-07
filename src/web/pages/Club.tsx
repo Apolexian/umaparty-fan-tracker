@@ -87,10 +87,9 @@ export function Club() {
           numbers — not whoever was actually in the club back then. Saying so
           is cheaper than letting people draw the wrong conclusion. */}
       {month && (
-        <p className="card bg-lav-100 px-4 py-2.5 text-sm text-ink-600">
-          Showing <span className="font-semibold">today's members</span> with their{" "}
-          {monthLabel(Number(month))} numbers. Chronogenesis keeps no record of who was
-          in a club in a past month, so this is not the roster as it stood then.
+        <p className="card bg-lav-100 px-4 py-2 text-sm text-ink-600">
+          Today's members with their {monthLabel(Number(month))} numbers — not the roster as
+          it stood then.
         </p>
       )}
 

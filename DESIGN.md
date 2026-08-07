@@ -81,8 +81,15 @@ different scales, which is what makes it read as a system.
   hover. `prefers-reduced-motion` disables all of it.
 - **Density**: this is a leaderboard people scan on a phone. Rows are compact
   and the numbers are the loudest thing on screen.
-- **Copy** is in the clubs' own voice ("Daily Dose of Data"), never generated
-  marketing filler. No "Empower your club with real-time analytics".
+- **Copy**: labels and numbers, not sentences. Explanatory subtitles under a
+  heading are the single most reliable generated-UI tell, and every one written
+  here so far has been cut on sight — "Every club, every member, updated daily",
+  "Everyone across the clubs, ranked by fans per day", "A projection from
+  today's averages, not a decision". If a caption only restates what the reader
+  can already see, delete it. Keep a line only when it carries a fact the UI
+  does not: a count, a date, a caveat about what the data means.
+- **The wordmark is "Umaparty"** — one capital, no two-tone split across the
+  word. Splitting a name into two colours is the same tell in typographic form.
 - **Icons**: `lucide-react` as a utility set for affordances only. It is not the
   page's visual identity, and never a decorative row of feature icons.
 

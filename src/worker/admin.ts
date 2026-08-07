@@ -20,27 +20,30 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
   const url = new URL(request.url);
   const path = url.pathname.replace(/^\/api\/admin\/?/, "").replace(/\/$/, "");
 
-  // Login is the only unauthenticated route.
-  if (path === "login" && request.method === "POST") {
-    const body = await readJson<{ username?: string; password?: string }>(request);
-    if (!body?.username || !body?.password) {
-      return json({ error: "username and password required" }, 400);
-    }
-    const result = await login(env, body.username, body.password, request);
-    if ("error" in result) return json({ error: result.error }, result.status);
-    return json({ officer: result.officer }, 200, { "set-cookie": result.cookie });
-  }
-
-  const officer = await currentOfficer(env, request);
-  if (!officer) return json({ error: "not signed in" }, 401);
-
-  if (path === "logout" && request.method === "POST") {
-    return json({ ok: true }, 200, { "set-cookie": await logout(env, request) });
-  }
-
-  if (path === "me") return json({ officer });
-
+  // Everything is inside the try, including login and the session lookup. They
+  // were outside it originally, so when login exceeded the Worker CPU limit the
+  // exception escaped as a bare Cloudflare 1101 page with nothing to debug from.
   try {
+    // Login is the only unauthenticated route.
+    if (path === "login" && request.method === "POST") {
+      const body = await readJson<{ username?: string; password?: string }>(request);
+      if (!body?.username || !body?.password) {
+        return json({ error: "username and password required" }, 400);
+      }
+      const result = await login(env, body.username, body.password, request);
+      if ("error" in result) return json({ error: result.error }, result.status);
+      return json({ officer: result.officer }, 200, { "set-cookie": result.cookie });
+    }
+
+    const officer = await currentOfficer(env, request);
+    if (!officer) return json({ error: "not signed in" }, 401);
+
+    if (path === "logout" && request.method === "POST") {
+      return json({ ok: true }, 200, { "set-cookie": await logout(env, request) });
+    }
+
+    if (path === "me") return json({ officer });
+
     switch (path) {
       case "notices":
         return await notices(request, env, officer);
@@ -60,7 +63,9 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         return json({ error: "not found" }, 404);
     }
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : String(error) }, 500);
+    // Logged in full; returned generically. Admin errors can carry SQL.
+    console.error("admin error", path, error);
+    return json({ error: "something went wrong" }, 500);
   }
 }
 

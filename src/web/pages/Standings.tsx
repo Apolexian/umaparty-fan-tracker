@@ -59,14 +59,13 @@ export function Standings() {
 
   return (
     <div className="space-y-5">
-      <header>
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <Ribbon>Standings</Ribbon>
-        <p className="mt-1 text-sm text-ink-500">
-          Everyone across the clubs, ranked by fans per day. If the reshuffle happened
-          today, <span className="font-semibold text-ink-700">{movers}</span> of{" "}
-          {data.placements.length} would change club.
-        </p>
-        <p className="mt-1 text-xs text-ink-400">Data to {ymdLong(data.ymd)}</p>
+        <span className="tnum text-sm text-ink-600">
+          <span className="font-bold text-ink-900">{movers}</span>/{data.placements.length} would
+          change club
+        </span>
+        <span className="ml-auto text-xs text-ink-400">{ymdLong(data.ymd)}</span>
       </header>
 
       <div className="flex flex-wrap gap-2">
@@ -173,9 +172,7 @@ export function Standings() {
         </ul>
       </div>
 
-      <p className="text-xs text-ink-400">
-        A projection from today's averages, not a decision — officers set the final roster.
-      </p>
+      <p className="text-xs text-ink-400">Projection only. Officers set the final roster.</p>
     </div>
   );
 }

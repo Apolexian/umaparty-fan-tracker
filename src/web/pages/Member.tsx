@@ -114,9 +114,6 @@ export function Member() {
             </p>
           )}
 
-          <p className="mt-2 text-xs text-ink-400">
-            A projection from today's averages, not a decision. Officers set the final roster.
-          </p>
         </section>
       )}
 
@@ -156,10 +153,6 @@ export function Member() {
               );
             })}
           </ol>
-          <p className="mt-3 text-xs text-ink-400">
-            Chronogenesis does not keep club moves — this history exists only because we
-            record it daily.
-          </p>
         </section>
       )}
     </div>
