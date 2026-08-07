@@ -251,3 +251,109 @@ export function BarChart({
     </div>
   );
 }
+
+/**
+ * Distinct hues for a 30-member club.
+ *
+ * Generated rather than hand-picked: a fixed palette runs out well before 30
+ * and starts repeating, which is worse than slightly awkward hues. The golden
+ * ratio step spreads them so adjacent members never land on neighbouring
+ * colours, and lightness alternates so similar hues still separate.
+ */
+function seriesColour(index: number): string {
+  const hue = (index * 137.508) % 360;
+  const light = index % 2 === 0 ? 62 : 48;
+  return `oklch(${light}% 0.15 ${hue})`;
+}
+
+export interface MemberSeries {
+  friendViewerId: number;
+  name: string;
+  points: { ymd: number; value: number }[];
+}
+
+/**
+ * Every member's cumulative progress through the month on one chart.
+ *
+ * Thirty lines is a lot, so hovering isolates a single series and the legend
+ * doubles as a filter — the shape of the pack matters as much as any one line.
+ */
+export function MemberProgressionChart({
+  series,
+  days,
+  height = 380,
+  hidden,
+  onToggle,
+}: {
+  series: MemberSeries[];
+  days: number[];
+  height?: number;
+  hidden: Set<number>;
+  onToggle: (viewerId: number) => void;
+}) {
+  if (series.length === 0 || days.length < 2) return null;
+
+  const options = baseOptions("Total", true) as ChartOptions<"line">;
+  options.plugins!.tooltip!.callbacks = {
+    label: (item: TooltipItem<"line">) =>
+      `${item.dataset.label}: ${fullFans(Number(item.parsed.y))}`,
+  };
+  // Thirty entries at once is unreadable; show the few nearest the cursor.
+  options.plugins!.tooltip!.mode = "nearest";
+  options.plugins!.tooltip!.intersect = false;
+  options.interaction = { mode: "nearest", axis: "x", intersect: false };
+
+  const visible = series.filter((s) => !hidden.has(s.friendViewerId));
+
+  return (
+    <div>
+      <div style={{ height }}>
+        <Line
+          options={options}
+          data={{
+            labels: days.map((ymd) => ymdLabel(ymd)),
+            datasets: visible.map((s) => {
+              const colour = seriesColour(series.indexOf(s));
+              const byDay = new Map(s.points.map((p) => [p.ymd, p.value]));
+              return {
+                label: s.name,
+                data: days.map((ymd) => byDay.get(ymd) ?? null),
+                borderColor: colour,
+                backgroundColor: colour,
+                borderWidth: 1.75,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0.25,
+                fill: false,
+                spanGaps: true,
+              };
+            }),
+          }}
+        />
+      </div>
+
+      <ul className="mt-3 flex flex-wrap gap-1">
+        {series.map((s, i) => {
+          const off = hidden.has(s.friendViewerId);
+          return (
+            <li key={s.friendViewerId}>
+              <button
+                onClick={() => onToggle(s.friendViewerId)}
+                className={`flex items-center gap-1.5 rounded-[6px] px-1.5 py-0.5 text-[11px] transition-opacity hover:bg-cream-200 ${
+                  off ? "opacity-35" : ""
+                }`}
+                title={off ? "Show" : "Hide"}
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                  style={{ background: seriesColour(i) }}
+                />
+                <span className="max-w-28 truncate text-ink-700">{s.name}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}

@@ -7,12 +7,16 @@
 import { projectPromotion, type Pin, type PromotionClub } from "./promotion.ts";
 import type { Env } from "./types.ts";
 
-const CACHE_CONTROL = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
+// no browser cache, long edge cache. The edge is what keeps D1 reads near zero;
+// a browser cache adds nothing for a site people open once or twice a day, and
+// a stale bundle plus a stale response made every deploy look broken for five
+// minutes. The edge entry is invalidated by the key below, not by expiry.
+const CACHE_CONTROL = "public, max-age=0, must-revalidate, s-maxage=3600, stale-while-revalidate=86400";
 
 // Bump when a response shape changes. The data-day in the cache key handles new
 // data, but not a deploy that adds a field to an existing day — without this,
 // entries cached before the deploy keep being served for up to an hour.
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 export async function handleApi(
   request: Request,
@@ -174,7 +178,25 @@ async function getClub(env: Env, circleId: number, month: string | null) {
     .bind(circleId)
     .all();
 
-  return { ymd, club, leaderboard, history, months };
+  // Per-member cumulative progression across the month being shown, for the
+  // multi-line chart. Restricted to the club's roster on the latest day so a
+  // member who left mid-month does not trail off into a flat line.
+  const yearMonth = Math.floor(ymd / 100);
+  const { results: series } = await env.DB.prepare(
+    `SELECT md.friend_viewer_id, m.name, md.ymd, md.mtd_cumulative, md.mtd_avg
+       FROM member_day md
+       JOIN members m ON m.friend_viewer_id = md.friend_viewer_id
+      WHERE md.circle_id = ?
+        AND md.ymd BETWEEN ? AND ?
+        AND md.friend_viewer_id IN (
+          SELECT friend_viewer_id FROM member_day WHERE circle_id = ? AND ymd = ?
+        )
+      ORDER BY md.friend_viewer_id, md.ymd`,
+  )
+    .bind(circleId, yearMonth * 100, yearMonth * 100 + 31, circleId, ymd)
+    .all();
+
+  return { ymd, club, leaderboard, history, months, series };
 }
 
 async function lastDayOfMonth(env: Env, circleId: number, yearMonth: number): Promise<number> {

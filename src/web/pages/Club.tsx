@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { useApi, type ClubSummary, type LeaderboardRow } from "../lib/api.ts";
 import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
 import { Delta, ErrorNote, RankBadge, Ribbon, Spinner, StatPill } from "../components/Bits.tsx";
+import { LineChart, MemberProgressionChart, type MemberSeries } from "../components/Charts.tsx";
 
 interface ClubResponse {
   ymd: number;
@@ -11,6 +12,12 @@ interface ClubResponse {
   leaderboard: LeaderboardRow[];
   history: { ymd: number; rank: number; fan_count: number; fan_gain: number }[];
   months: { year_month: number; rank: number; fan_count: number; monthly_fan_gain: number }[];
+  series: {
+    friend_viewer_id: number;
+    name: string;
+    ymd: number;
+    mtd_cumulative: number;
+  }[];
 }
 
 type SortKey = "rank" | "name" | "avg" | "delta" | "total";
@@ -20,6 +27,7 @@ export function Club() {
   const [month, setMonth] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("rank");
   const [desc, setDesc] = useState(false);
+  const [hidden, setHidden] = useState<Set<number>>(new Set());
 
   const { data, error, loading } = useApi<ClubResponse>(
     id ? `club/${id}${month ? `?month=${month}` : ""}` : null,
@@ -44,6 +52,38 @@ export function Club() {
     });
     return desc ? sorted.reverse() : sorted;
   }, [data, sort, desc]);
+
+  // Rows arrive ordered by member then day, so grouping preserves both.
+  const { memberSeries, days, clubTotals } = ((): {
+    memberSeries: MemberSeries[];
+    days: number[];
+    clubTotals: { ymd: number; value: number }[];
+  } => {
+    if (!data?.series) return { memberSeries: [], days: [], clubTotals: [] };
+
+    const byMember = new Map<number, MemberSeries>();
+    const perDay = new Map<number, number>();
+
+    for (const row of data.series) {
+      let entry = byMember.get(row.friend_viewer_id);
+      if (!entry) {
+        entry = { friendViewerId: row.friend_viewer_id, name: row.name, points: [] };
+        byMember.set(row.friend_viewer_id, entry);
+      }
+      entry.points.push({ ymd: row.ymd, value: row.mtd_cumulative });
+      perDay.set(row.ymd, (perDay.get(row.ymd) ?? 0) + row.mtd_cumulative);
+    }
+
+    const allDays = [...perDay.keys()].sort((a, b) => a - b);
+    return {
+      // Biggest first, so the legend order matches what the eye follows.
+      memberSeries: [...byMember.values()].sort(
+        (a, b) => (b.points.at(-1)?.value ?? 0) - (a.points.at(-1)?.value ?? 0),
+      ),
+      days: allDays,
+      clubTotals: allDays.map((ymd) => ({ ymd, value: perDay.get(ymd) ?? 0 })),
+    };
+  })();
 
   if (loading) return <Spinner label="Loading club" />;
   if (error) return <ErrorNote message={error} />;
@@ -107,6 +147,36 @@ export function Club() {
           hint={data.club.fan_count ? fullFans(data.club.fan_count) : undefined}
         />
       </div>
+
+      {clubTotals.length > 1 && (
+        <section className="card px-4 py-4">
+          <h2 className="mb-2 font-display text-lg font-bold text-ink-900">Club progression</h2>
+          <LineChart
+            valueLabel="Club total"
+            points={clubTotals.map((d) => ({ ymd: d.ymd, value: d.value }))}
+            height={200}
+          />
+        </section>
+      )}
+
+      {memberSeries.length > 0 && (
+        <section className="card px-4 py-4">
+          <h2 className="mb-2 font-display text-lg font-bold text-ink-900">Member progression</h2>
+          <MemberProgressionChart
+            series={memberSeries}
+            days={days}
+            hidden={hidden}
+            onToggle={(id) =>
+              setHidden((prev) => {
+                const next = new Set(prev);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
+          />
+        </section>
+      )}
 
       <div className="card overflow-hidden">
         <div className="grid grid-cols-[2.5rem_1fr_5.5rem_5rem] items-center gap-2 border-b border-cream-300 px-3 py-2 text-xs font-semibold text-ink-500 sm:grid-cols-[2.5rem_1fr_6rem_6rem_5rem]">
