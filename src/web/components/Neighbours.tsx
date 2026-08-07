@@ -112,7 +112,11 @@ export function PromotionGauge({
   placement: Placement;
   clubs: { circleId: number; name: string; slotOrder: number; entryThreshold: number | null }[];
 }) {
-  const here = clubs.find((c) => c.circleId === placement.projectedCircleId);
+  // The club they are in now, not the projected one. Anchoring on the
+  // projection told a TwomaParty member bound for UmaParty that they were
+  // "already in the top club", and measured their cushion against a drop line
+  // they are not standing on. The projected club is stated above this.
+  const here = clubs.find((c) => c.circleId === placement.currentCircleId);
   if (!here) return null;
 
   const above = clubs.find((c) => c.slotOrder === here.slotOrder - 1);

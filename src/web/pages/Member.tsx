@@ -102,6 +102,14 @@ export function Member() {
             )}
           </div>
 
+          {/* A pinned leader keeps their seat (D006), so the projected club
+              above is not what happens to them. */}
+          {placement.pinnedAs === "leader" && (
+            <p className="text-xs text-ink-400">
+              Won't actually change — leaders are cheaters.
+            </p>
+          )}
+
           <PromotionGauge placement={placement} clubs={standings.data.clubs} />
         </section>
       )}
