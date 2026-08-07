@@ -4,7 +4,7 @@
 // arrive in bursts from a Discord link, and the whole site is five or six
 // queries — this keeps D1 reads near zero on the free tier.
 
-import { projectPromotion, type Pin, type PromotionClub } from "./promotion.ts";
+import { buildPins, projectPromotion, type PromotionClub } from "./promotion.ts";
 import type { Env } from "./types.ts";
 
 // no browser cache, long edge cache. The edge is what keeps D1 reads near zero;
@@ -122,8 +122,11 @@ async function getClubs(env: Env) {
   const { results } = await env.DB.prepare(
     `SELECT c.circle_id, c.name, c.slot_order, c.capacity, c.in_pool, c.rank, c.rank_diff,
             c.fan_count, c.member_num, c.comment, c.updated_at,
-            COALESCE(pin.friend_viewer_id, c.leader_viewer_id_api) AS leader_viewer_id,
-            COALESCE(pm.name, lm.name) AS leader_name,
+            -- Chrono leads; the officer pin is only a proposal (D027).
+            c.leader_viewer_id_api AS leader_viewer_id,
+            lm.name AS leader_name,
+            pin.friend_viewer_id AS proposed_leader_viewer_id,
+            pm.name AS proposed_leader_name,
             (SELECT COUNT(*) FROM member_day md WHERE md.circle_id = c.circle_id AND md.ymd = ?)
               AS tracked_members,
             (SELECT SUM(md.mtd_avg) FROM member_day md
@@ -298,13 +301,15 @@ async function getStandings(env: Env) {
   const ymd = await latestDay(env);
 
   const { results: clubRows } = await env.DB.prepare(
-    "SELECT circle_id, name, slot_order, capacity, in_pool FROM clubs WHERE is_active = 1 ORDER BY slot_order",
+    `SELECT circle_id, name, slot_order, capacity, in_pool, leader_viewer_id_api
+       FROM clubs WHERE is_active = 1 ORDER BY slot_order`,
   ).all<{
     circle_id: number;
     name: string;
     slot_order: number;
     capacity: number;
     in_pool: number;
+    leader_viewer_id_api: number | null;
   }>();
 
   const clubs: PromotionClub[] = clubRows.map((c) => ({
@@ -332,15 +337,16 @@ async function getStandings(env: Env) {
       days_active: number;
     }>();
 
+  // Only manual pins: a 'leader' pin is the officers' proposal for the next
+  // reshuffle and holds nobody (D027).
   const { results: pinRows } = await env.DB.prepare(
-    "SELECT friend_viewer_id, circle_id, kind FROM member_pins WHERE unset_at IS NULL",
-  ).all<{ friend_viewer_id: number; circle_id: number; kind: string }>();
+    "SELECT friend_viewer_id, circle_id FROM member_pins WHERE kind = 'manual' AND unset_at IS NULL",
+  ).all<{ friend_viewer_id: number; circle_id: number }>();
 
-  const pins: Pin[] = pinRows.map((p) => ({
-    friendViewerId: p.friend_viewer_id,
-    circleId: p.circle_id,
-    kind: p.kind === "leader" ? "leader" : "manual",
-  }));
+  const pins = buildPins(
+    clubRows.map((c) => ({ circleId: c.circle_id, leaderViewerId: c.leader_viewer_id_api })),
+    pinRows.map((p) => ({ friendViewerId: p.friend_viewer_id, circleId: p.circle_id })),
+  );
 
   const projection = projectPromotion(
     memberRows.map((r) => ({

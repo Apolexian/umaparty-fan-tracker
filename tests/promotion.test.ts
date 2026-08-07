@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { CLUBS } from "../src/worker/chrono.ts";
 import { deriveMemberDays, latestYmd, leaderboardForDay } from "../src/worker/derive.ts";
 import {
+  buildPins,
   CLUB_CAPACITY,
   projectPromotion,
   type PromotionCandidate,
@@ -380,5 +381,56 @@ describe("projectPromotion", () => {
 
     const result = projectPromotion(candidates, clubs, pins);
     expect(result.clubs[0]!.members).toHaveLength(CLUB_CAPACITY);
+  });
+});
+
+describe("buildPins — chrono owns who leads (D027)", () => {
+  const clubRows = [
+    { circleId: 1, leaderViewerId: 100 },
+    { circleId: 2, leaderViewerId: 200 },
+    { circleId: 3, leaderViewerId: null },
+  ];
+
+  it("pins each club's chrono leader", () => {
+    const pins = buildPins(clubRows, []);
+    expect(pins).toEqual([
+      { friendViewerId: 100, circleId: 1, kind: "leader" },
+      { friendViewerId: 200, circleId: 2, kind: "leader" },
+    ]);
+  });
+
+  it("keeps manual pins alongside", () => {
+    const pins = buildPins(clubRows, [{ friendViewerId: 300, circleId: 3 }]);
+    expect(pins).toContainEqual({ friendViewerId: 300, circleId: 3, kind: "manual" });
+  });
+
+  it("lets the chrono leader win a collision with a manual pin", () => {
+    const pins = buildPins(clubRows, [{ friendViewerId: 100, circleId: 3 }]);
+    expect(pins.filter((p) => p.friendViewerId === 100)).toEqual([
+      { friendViewerId: 100, circleId: 1, kind: "leader" },
+    ]);
+  });
+
+  it("holds a low-ranked leader in their club through the projection", () => {
+    const twoClubs: PromotionClub[] = [
+      { circleId: 1, name: "Top", slotOrder: 1, capacity: 2 },
+      { circleId: 2, name: "Second", slotOrder: 2, capacity: 2 },
+    ];
+    const candidates: PromotionCandidate[] = [
+      { friendViewerId: 1, name: "a", currentCircleId: 1, mtdAvg: 900 },
+      { friendViewerId: 2, name: "b", currentCircleId: 2, mtdAvg: 800 },
+      { friendViewerId: 3, name: "lead", currentCircleId: 1, mtdAvg: 100 },
+      { friendViewerId: 4, name: "d", currentCircleId: 2, mtdAvg: 700 },
+    ];
+
+    // The lead is last by average but leads the top club, so they keep the seat
+    // and the member who earned it cascades down.
+    const pins = buildPins([{ circleId: 1, leaderViewerId: 3 }], []);
+    const { placements } = projectPromotion(candidates, twoClubs, pins);
+
+    const lead = placements.find((p) => p.friendViewerId === 3);
+    expect(lead?.projectedCircleId).toBe(1);
+    expect(lead?.pinnedAs).toBe("leader");
+    expect(placements.find((p) => p.friendViewerId === 2)?.projectedCircleId).toBe(2);
   });
 });

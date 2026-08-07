@@ -20,13 +20,25 @@ export function Home() {
   const [copied, setCopied] = useState<"image" | "message" | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
 
-  // 2x so the numbers stay legible after Discord recompresses it, and an
-  // explicit background because the node itself is transparent.
-  const renderOptions = {
-    pixelRatio: 2,
-    backgroundColor: "#fdfaf1",
-    style: { padding: "16px" },
-  };
+  /**
+   * 2x so the numbers stay legible after Discord recompresses it, and an
+   * explicit background because the node itself is transparent.
+   *
+   * Width and height are passed explicitly: html-to-image sizes the capture
+   * from the node's own box, so the padding injected into the clone fell
+   * outside it and cropped the last row off -- each club's daily total. The
+   * scroll extents matter too, since the board is wider than its container.
+   */
+  function renderOptions(node: HTMLElement) {
+    const pad = 16;
+    return {
+      pixelRatio: 2,
+      backgroundColor: "#fdfaf1",
+      style: { padding: `${pad}px` },
+      width: Math.max(node.offsetWidth, node.scrollWidth) + pad * 2,
+      height: Math.max(node.offsetHeight, node.scrollHeight) + pad * 2,
+    };
+  }
 
   /**
    * Export the board as a PNG.
@@ -40,7 +52,7 @@ export function Home() {
     setSaving(true);
     try {
       const { toPng } = await import("html-to-image");
-      const url = await toPng(boardRef.current, renderOptions);
+      const url = await toPng(boardRef.current, renderOptions(boardRef.current));
       const day = standings.data?.ymd ?? "";
       const link = document.createElement("a");
       link.download = `umaparty-${day}.png`;
@@ -62,7 +74,7 @@ export function Home() {
     setCopyError(null);
     try {
       const { toBlob } = await import("html-to-image");
-      const blob = await toBlob(boardRef.current, renderOptions);
+      const blob = await toBlob(boardRef.current, renderOptions(boardRef.current));
       if (!blob) throw new Error("could not render the board");
       await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
       flash("image");

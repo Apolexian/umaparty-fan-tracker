@@ -31,16 +31,48 @@ export interface PromotionClub {
 export type PinKind = "leader" | "manual";
 
 /**
- * A member held in a specific club through the reshuffle. Leaders are pinned
- * automatically; officers can pin anyone else — someone who asked to stay put,
- * an alt account, a member mid-negotiation. Both kinds behave identically:
- * they consume a slot in their club and so displace someone who out-ranked
- * them, who then cascades down. See D006, D021.
+ * A member held in a specific club through the reshuffle. Leaders come from
+ * chronogenesis, which is the game's own record of who leads (D027); officers
+ * pin anyone else — someone who asked to stay put, an alt account, a member
+ * mid-negotiation. Both kinds behave identically: they consume a slot in their
+ * club and so displace someone who out-ranked them, who then cascades down.
+ * See D006, D021.
  */
 export interface Pin {
   friendViewerId: number;
   circleId: number;
   kind: PinKind;
+}
+
+/**
+ * Assemble the pins a projection runs on.
+ *
+ * Leaders are whoever chrono says leads the club — a leader keeps their seat
+ * whether or not an officer got round to recording it, and the officers' own
+ * lead choice is a proposal for the next reshuffle, not a fact about today
+ * (D027). A member who leads a club cannot also hold a manual pin, so chrono
+ * wins the collision.
+ */
+export function buildPins(
+  clubs: { circleId: number; leaderViewerId: number | null }[],
+  manual: { friendViewerId: number; circleId: number }[],
+): Pin[] {
+  const pins: Pin[] = clubs
+    .filter((club) => club.leaderViewerId !== null)
+    .map((club) => ({
+      friendViewerId: club.leaderViewerId!,
+      circleId: club.circleId,
+      kind: "leader" as const,
+    }));
+
+  const led = new Set(pins.map((pin) => pin.friendViewerId));
+  for (const pin of manual) {
+    if (!led.has(pin.friendViewerId)) {
+      pins.push({ ...pin, kind: "manual" });
+    }
+  }
+
+  return pins;
 }
 
 export interface PromotionCandidate {

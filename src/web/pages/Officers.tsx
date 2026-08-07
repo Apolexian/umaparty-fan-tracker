@@ -52,6 +52,7 @@ interface PublicClub {
   circle_id: number;
   name: string;
   slot_order: number;
+  leader_viewer_id: number | null;
   leader_name: string | null;
 }
 
@@ -478,11 +479,14 @@ function ClubLeaders() {
   return (
     <section className="space-y-3">
       <Ribbon>Club leads</Ribbon>
+      <p className="text-sm text-ink-500">
+        Leads come from chrono. Setting one here is a proposal for the next reshuffle — it
+        does not hold them.
+      </p>
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {clubs.map((club) => {
           const pin = leaderPin(club.circle_id);
-          const name = pin?.name ?? club.leader_name;
           const isEditing = editing === club.circle_id;
 
           return (
@@ -501,16 +505,21 @@ function ClubLeaders() {
                 </Button>
               </div>
 
+              {/* Chrono is the lead of record and the one the projection holds
+                  (D027); the pin below is only who officers want next. */}
               <div className="mt-1.5 text-sm">
-                {name ? (
-                  <span className="font-semibold text-ink-900">{name}</span>
+                {club.leader_name ? (
+                  <span className="font-semibold text-ink-900">{club.leader_name}</span>
                 ) : (
-                  <span className="text-ink-400">no lead set</span>
-                )}
-                {!pin && name && (
-                  <span className="ml-1.5 text-[11px] text-ink-400">from chrono</span>
+                  <span className="text-ink-400">chrono has no lead</span>
                 )}
               </div>
+
+              {pin && pin.friend_viewer_id !== club.leader_viewer_id && (
+                <div className="mt-1 text-xs text-ink-500">
+                  proposed: <span className="font-semibold text-ink-700">{pin.name}</span>
+                </div>
+              )}
 
               {isEditing && (
                 <div className="mt-2">

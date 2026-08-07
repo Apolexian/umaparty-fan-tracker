@@ -13,7 +13,7 @@ import {
   type Officer,
 } from "./auth.ts";
 import { ingestAll, latestDataYmd, recomputeOverallRanks } from "./ingest.ts";
-import { projectPromotion, type Pin, type PromotionClub } from "./promotion.ts";
+import { buildPins, projectPromotion, type PromotionClub } from "./promotion.ts";
 import type { Env } from "./types.ts";
 
 export async function handleAdmin(request: Request, env: Env): Promise<Response> {
@@ -375,8 +375,16 @@ async function seedPlan(
   )?.ymd;
 
   const { results: clubRows } = await env.DB.prepare(
-    "SELECT circle_id, name, slot_order, capacity, in_pool FROM clubs WHERE is_active = 1",
-  ).all<{ circle_id: number; name: string; slot_order: number; capacity: number; in_pool: number }>();
+    `SELECT circle_id, name, slot_order, capacity, in_pool, leader_viewer_id_api
+       FROM clubs WHERE is_active = 1`,
+  ).all<{
+    circle_id: number;
+    name: string;
+    slot_order: number;
+    capacity: number;
+    in_pool: number;
+    leader_viewer_id_api: number | null;
+  }>();
 
   const { results: memberRows } = await env.DB.prepare(
     `SELECT md.friend_viewer_id, m.name, md.circle_id, md.mtd_avg
@@ -386,9 +394,10 @@ async function seedPlan(
     .bind(ymd ?? 0)
     .all<{ friend_viewer_id: number; name: string; circle_id: number; mtd_avg: number }>();
 
+  // Manual pins only — a 'leader' pin is a proposal and holds nobody (D027).
   const { results: pinRows } = await env.DB.prepare(
-    "SELECT friend_viewer_id, circle_id, kind FROM member_pins WHERE unset_at IS NULL",
-  ).all<{ friend_viewer_id: number; circle_id: number; kind: string }>();
+    "SELECT friend_viewer_id, circle_id FROM member_pins WHERE kind = 'manual' AND unset_at IS NULL",
+  ).all<{ friend_viewer_id: number; circle_id: number }>();
 
   const clubs: PromotionClub[] = clubRows.map((c) => ({
     circleId: c.circle_id,
@@ -398,11 +407,10 @@ async function seedPlan(
     inPool: c.in_pool === 1,
   }));
 
-  const pins: Pin[] = pinRows.map((p) => ({
-    friendViewerId: p.friend_viewer_id,
-    circleId: p.circle_id,
-    kind: p.kind === "leader" ? "leader" : "manual",
-  }));
+  const pins = buildPins(
+    clubRows.map((c) => ({ circleId: c.circle_id, leaderViewerId: c.leader_viewer_id_api })),
+    pinRows.map((p) => ({ friendViewerId: p.friend_viewer_id, circleId: p.circle_id })),
+  );
 
   const projection = projectPromotion(
     memberRows.map((r) => ({

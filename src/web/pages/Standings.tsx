@@ -12,7 +12,7 @@ import { ClubChip, Delta, DirectionMark, ErrorNote, RankBadge, Ribbon, Spinner }
  * did not need it.
  */
 const STANDINGS_COLS =
-  "grid-cols-[2.5rem_1fr_5.5rem_4.5rem] sm:grid-cols-[2.5rem_minmax(9rem,20rem)_1fr_6rem_5.75rem]";
+  "grid-cols-[2.5rem_1fr_5.5rem_4.5rem] sm:grid-cols-[2.5rem_minmax(9rem,20rem)_1fr_6rem_5.75rem] lg:grid-cols-[2.5rem_minmax(9rem,20rem)_1fr_7.5rem_6.5rem]";
 
 interface StandingsResponse {
   ymd: number;
@@ -159,10 +159,11 @@ export function Standings() {
                       className="tnum text-right font-display text-base font-bold text-ink-900"
                       title={fullFans(placement.mtdAvg)}
                     >
-                      {compactFans(placement.mtdAvg)}
+                      <span className="lg:hidden">{compactFans(placement.mtdAvg)}</span>
+                      <span className="hidden lg:inline">{fullFans(placement.mtdAvg)}</span>
                     </span>
 
-                    <Delta value={placement.mtdAvgDelta} className="text-right text-sm" />
+                    <Delta value={placement.mtdAvgDelta} full className="text-right text-sm" />
                   </Link>
                 </li>
 

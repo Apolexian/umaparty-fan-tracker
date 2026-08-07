@@ -455,3 +455,34 @@ changed is only that we no longer display a single inferred stint as though it
 were history.
 
 Expect the section to start appearing after the first reshuffle we observe.
+
+---
+
+## D027 — Chrono owns who leads a club; an officer's lead pick is a proposal <a id="d027"></a>
+**2026-08-07 · ACTIVE — inverts part of [D006](#d006)/[D021](#d021)**
+
+A leader keeps their seat through the reshuffle (D006), but until now the
+projection only knew about leaders an officer had explicitly pinned. Nobody had
+pinned any, so every club lead was being projected as a normal member and shown
+a demotion that would never happen — the site said the UmaParty lead drops to
+TwomaParty while chrono had them leading UmaParty all along.
+
+Chronogenesis reports the leader in `club_friend_profile`, stored as
+`clubs.leader_viewer_id_api`. That is the game's own record, so it is now the
+source the projection pins on. A lead keeps their seat whether or not an
+officer got round to recording it.
+
+- `buildPins()` synthesises a `leader` pin per club from
+  `clubs.leader_viewer_id_api`, then adds `manual` pins from `member_pins`.
+  Chrono wins a collision: a lead cannot also be manually pinned elsewhere.
+- `member_pins` rows with `kind = 'leader'` no longer hold anyone. They are
+  **proposals** — who the officers intend to make lead at the next reshuffle —
+  and are shown as such in the officers area.
+- `kind = 'manual'` pins are unchanged and still hold (D021).
+- The clubs API returns chrono's lead as `leader_viewer_id` / `leader_name`,
+  and the officers' pick separately as `proposed_leader_*`. It used to
+  `COALESCE` them, which made a proposal indistinguishable from a fact.
+
+The known cost is that chrono's leader field lags a real in-game handover by up
+to a day, so for that day the projection holds the previous lead. That is
+strictly better than holding nobody, which is what it did before.
