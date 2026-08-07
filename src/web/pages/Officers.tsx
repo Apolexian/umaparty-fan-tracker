@@ -36,6 +36,8 @@ interface RosterEntry {
   projected_circle_id: number | null;
   name: string;
   mtd_avg: number | null;
+  /** Where chrono has them today — the plan does not move anyone. */
+  actual_circle_id: number | null;
 }
 
 interface RosterClub {
@@ -711,6 +713,8 @@ function RosterEditor() {
   const [entries, setEntries] = useState<RosterEntry[]>([]);
   const [clubs, setClubs] = useState<RosterClub[]>([]);
   const [status, setStatus] = useState<string>("draft");
+  const [yearMonth, setYearMonth] = useState(0);
+  const [dataYmd, setDataYmd] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<RosterEntry | null>(null);
@@ -720,12 +724,16 @@ function RosterEditor() {
       plan: { id: number; status: string };
       entries: RosterEntry[];
       clubs: RosterClub[];
+      yearMonth: number;
+      dataYmd: number;
     }>("roster")
       .then((r) => {
         setPlanId(r.plan.id);
         setStatus(r.plan.status);
         setEntries(r.entries);
         setClubs(r.clubs);
+        setYearMonth(r.yearMonth);
+        setDataYmd(r.dataYmd);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -750,6 +758,34 @@ function RosterEditor() {
   }, [entries, clubs]);
 
   const changed = entries.filter((e) => e.source === "manual").length;
+
+  const clubName = useCallback(
+    (circleId: number | null) =>
+      circleId === null ? "Unplaced" : (clubs.find((c) => c.circle_id === circleId)?.name ?? `Club ${circleId}`),
+    [clubs],
+  );
+
+  /**
+   * A finalised plan is only a record of intent — the reshuffle is executed by
+   * hand in-game and nothing here writes back to chrono. Once the month it
+   * covers has started, chrono is the evidence of what actually happened, so
+   * the two are compared and any divergence is flagged.
+   *
+   * Only after the 1st: before then everyone is still in last month's club and
+   * every planned move would read as a mismatch.
+   */
+  const monthStarted = status === "final" && dataYmd >= yearMonth * 100 + 1;
+  const offPlan = useMemo(
+    () =>
+      monthStarted
+        ? entries.filter((e) => e.actual_circle_id !== e.circle_id)
+        : [],
+    [monthStarted, entries],
+  );
+  const offPlanIds = useMemo(
+    () => new Set(offPlan.map((e) => e.friend_viewer_id)),
+    [offPlan],
+  );
 
   function onDragStart(event: DragStartEvent) {
     setDragging(entries.find((e) => e.friend_viewer_id === Number(event.active.id)) ?? null);
@@ -834,9 +870,39 @@ function RosterEditor() {
       </div>
 
       <p className="text-sm text-ink-500">
-        Drag anyone into any club. The projection is a proposal — this is what actually
-        gets executed.
+        Drag anyone into any club. Finalising records the plan — the reshuffle is still done
+        by hand in-game.
       </p>
+
+      {monthStarted && (
+        <div
+          className={`card px-4 py-3 text-sm ${
+            offPlan.length > 0
+              ? "border-coral-300 bg-coral-100 text-coral-700"
+              : "border-teal-400 bg-teal-100 text-ink-700"
+          }`}
+        >
+          {offPlan.length === 0 ? (
+            <span className="font-semibold">
+              Chrono matches the plan — all {entries.length} in their planned club.
+            </span>
+          ) : (
+            <>
+              <div className="font-semibold">
+                {offPlan.length} of {entries.length} are not where the plan puts them.
+              </div>
+              <ul className="mt-1.5 space-y-0.5 text-xs">
+                {offPlan.map((entry) => (
+                  <li key={entry.friend_viewer_id}>
+                    <span className="font-semibold">{entry.name}</span> — planned{" "}
+                    {clubName(entry.circle_id)}, chrono has {clubName(entry.actual_circle_id)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
 
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -845,9 +911,10 @@ function RosterEditor() {
               key={club.circle_id}
               club={club}
               entries={byClub.get(club.circle_id) ?? []}
+              offPlanIds={offPlanIds}
             />
           ))}
-          <ClubColumn club={null} entries={byClub.get(null) ?? []} />
+          <ClubColumn club={null} entries={byClub.get(null) ?? []} offPlanIds={offPlanIds} />
         </div>
 
         {/* Follows the cursor across columns; without it the card stays clipped
@@ -858,7 +925,15 @@ function RosterEditor() {
   );
 }
 
-function ClubColumn({ club, entries }: { club: RosterClub | null; entries: RosterEntry[] }) {
+function ClubColumn({
+  club,
+  entries,
+  offPlanIds,
+}: {
+  club: RosterClub | null;
+  entries: RosterEntry[];
+  offPlanIds: Set<number>;
+}) {
   const id = club ? `club-${club.circle_id}` : "club-none";
   const { setNodeRef, isOver } = useDroppable({ id });
   const over = club ? entries.length > club.capacity : false;
@@ -891,7 +966,11 @@ function ClubColumn({ club, entries }: { club: RosterClub | null; entries: Roste
 
       <ul className="space-y-1">
         {entries.map((entry) => (
-          <MemberCard key={entry.friend_viewer_id} entry={entry} />
+          <MemberCard
+            key={entry.friend_viewer_id}
+            entry={entry}
+            offPlan={offPlanIds.has(entry.friend_viewer_id)}
+          />
         ))}
         {entries.length === 0 && (
           <li className="px-1 py-3 text-center text-xs text-ink-400">drop here</li>
@@ -906,7 +985,7 @@ function ClubColumn({ club, entries }: { club: RosterClub | null; entries: Roste
  * carries no meaning — it is rebuilt from rank. `useSortable` would also need a
  * SortableContext wrapper it never had.
  */
-function MemberCard({ entry }: { entry: RosterEntry }) {
+function MemberCard({ entry, offPlan }: { entry: RosterEntry; offPlan: boolean }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: entry.friend_viewer_id,
   });
@@ -919,20 +998,26 @@ function MemberCard({ entry }: { entry: RosterEntry }) {
       style={{ opacity: isDragging ? 0.35 : 1 }}
       className="cursor-grab active:cursor-grabbing"
     >
-      <MemberChip entry={entry} />
+      <MemberChip entry={entry} offPlan={offPlan} />
     </li>
   );
 }
 
-function MemberChip({ entry }: { entry: RosterEntry }) {
+function MemberChip({ entry, offPlan = false }: { entry: RosterEntry; offPlan?: boolean }) {
   const moved = entry.source === "manual" && entry.circle_id !== entry.projected_circle_id;
 
   return (
     <span
       className={`capsule flex items-center gap-2 px-3 py-1.5 text-sm ${
-        moved ? "bg-lav-200" : "bg-cream-200"
+        offPlan ? "bg-coral-100 ring-1 ring-coral-300" : moved ? "bg-lav-200" : "bg-cream-200"
       }`}
-      title={moved ? "Moved by hand from the projection" : undefined}
+      title={
+        offPlan
+          ? "Chrono has them in a different club than the plan"
+          : moved
+            ? "Moved by hand from the projection"
+            : undefined
+      }
     >
       <span className="min-w-0 flex-1 truncate font-semibold text-ink-900">{entry.name}</span>
       <span className="tnum text-xs text-ink-500">

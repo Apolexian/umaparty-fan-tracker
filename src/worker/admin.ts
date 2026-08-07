@@ -276,9 +276,12 @@ async function roster(request: Request, env: Env, officer: Officer, url: URL): P
       plan = seeded;
     }
 
+    // `actual_circle_id` is where chrono has them today, against which a
+    // finalised plan is checked. Nothing here moves anyone: the reshuffle is
+    // done by hand in-game, so the plan and reality can diverge silently.
     const { results: entries } = await env.DB.prepare(
       `SELECT e.friend_viewer_id, e.circle_id, e.position, e.source, e.projected_circle_id,
-              m.name, md.mtd_avg
+              m.name, md.mtd_avg, md.circle_id AS actual_circle_id
          FROM roster_plan_entries e
          LEFT JOIN members m ON m.friend_viewer_id = e.friend_viewer_id
          LEFT JOIN member_day md
@@ -294,7 +297,9 @@ async function roster(request: Request, env: Env, officer: Officer, url: URL): P
       "SELECT circle_id, name, slot_order, capacity, in_pool FROM clubs WHERE is_active = 1 ORDER BY slot_order",
     ).all();
 
-    return json({ plan, entries, clubs, yearMonth });
+    const dataYmd = await latestDataYmd(env);
+
+    return json({ plan, entries, clubs, yearMonth, dataYmd });
   }
 
   // Drag-and-drop result: a full new placement for the members that moved.
