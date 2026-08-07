@@ -429,3 +429,29 @@ and says so.
 Member pages are unaffected — a member's own history is theirs regardless of
 which club it is attributed to, and `club_stint` gives them a real club timeline
 from go-live.
+
+---
+
+## D028 — Club history is hidden until we have observed a real move
+**2026-08-07 · Ivan · ACTIVE**
+
+The member page had a "Club history" section from day one. With a fresh
+database every member has exactly one stint, seeded from the API's `join_time`
+(D023), so it rendered as e.g. "UmaParty · 2 September 2025 → now".
+
+That is an assertion of unbroken membership since that date, which
+chronogenesis does not actually know and which Ivan confirmed is often wrong —
+`join_time` is the club's own record and does not survive the moves we care
+about. Ivan: *"club history seems to just be incorrect or incomplete… if we
+can't derive this from chrono then no point having it."*
+
+The section now renders only when a member has **more than one** stint, i.e.
+when our own daily snapshots have recorded an actual transfer.
+
+`club_stint` keeps being written every day regardless. The data collection is
+the valuable part (D010 — chronogenesis retains no movement history at all, so
+if we stop recording, nothing anywhere will have it) and it costs nothing. What
+changed is only that we no longer display a single inferred stint as though it
+were history.
+
+Expect the section to start appearing after the first reshuffle we observe.

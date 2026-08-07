@@ -139,13 +139,17 @@ export function Club() {
               >
                 <RankBadge rank={row.rank_in_club} />
 
-                <span className="min-w-0">
-                  <span className="block truncate font-semibold text-ink-900">{row.name}</span>
-                  {/* Surfaced because it changes how their average is read:
-                      the denominator is days in this club, not days elapsed. */}
-                  {row.days_active > 0 && row.days_active < (data.ymd % 100) && (
-                    <span className="text-[11px] text-ink-400">
-                      {row.days_active} days in club
+                {/* Members who joined mid-month have a shorter denominator, so
+                    their average is over fewer days. Marked with a dot on the
+                    name rather than a caption under every row. */}
+                <span className="min-w-0 truncate font-semibold text-ink-900">
+                  {row.name}
+                  {row.days_active > 0 && row.days_active < data.ymd % 100 && (
+                    <span
+                      className="ml-1 text-teal-600"
+                      title={`Average over ${row.days_active} days in this club`}
+                    >
+                      *
                     </span>
                   )}
                 </span>

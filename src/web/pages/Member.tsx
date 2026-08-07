@@ -124,6 +124,7 @@ export function Member() {
           </h2>
           <Sparkline
             points={monthDays.map((d) => ({ x: d.ymd, y: d.mtd_avg }))}
+            format={compactFans}
             label={(p) => `${ymdLabel(p.x)} · ${fullFans(p.y)} fans/day`}
           />
 
@@ -132,7 +133,14 @@ export function Member() {
         </section>
       )}
 
-      {stints.length > 0 && (
+      {/* Only shown once we have actually observed a move.
+          Before that there is exactly one stint, seeded from the API's
+          join_time, and rendering it claims unbroken membership since that
+          date -- which is not something chronogenesis knows and is often
+          wrong. A section that asserts a falsehood is worse than no section,
+          so it stays hidden until our own daily snapshots have recorded a
+          real transfer. See D010, D028. */}
+      {stints.length > 1 && (
         <section className="card px-4 py-4">
           <h2 className="mb-3 font-display text-lg font-bold text-ink-900">Club history</h2>
           <ol className="space-y-2">
@@ -155,38 +163,48 @@ export function Member() {
           </ol>
         </section>
       )}
+
     </div>
   );
 }
 
 function Bars({ days }: { days: MemberDay[] }) {
   const max = Math.max(...days.map((d) => Math.max(d.fan_gain, d.fan_gain_observed ?? 0)), 1);
+  const HEIGHT = 88;
 
   return (
-    <div className="flex items-end gap-1" style={{ height: 96 }}>
-      {days.map((day) => {
-        // A zeroed gain with a preserved observation means the game wiped it
-        // when they moved club. Showing what really happened is the point of
-        // keeping both numbers.
-        const wiped = day.fan_gain === 0 && (day.fan_gain_observed ?? 0) > 0;
-        const value = wiped ? day.fan_gain_observed : day.fan_gain;
-        return (
-          <div
-            key={day.ymd}
-            className="group relative flex-1"
-            title={
-              wiped
-                ? `${ymdLabel(day.ymd)} · ${fullFans(value)} earned, reset to 0 by a club move`
-                : `${ymdLabel(day.ymd)} · ${fullFans(value)}`
-            }
-          >
+    <div>
+      {/* Bars get the tight radius, not the pill one: a 999px radius on a wide
+          short bar turns it into a blob and destroys the shape being read. */}
+      <div className="flex items-end gap-[3px]" style={{ height: HEIGHT }}>
+        {days.map((day) => {
+          // A zeroed gain with a preserved observation means the game wiped it
+          // when they moved club. Showing what really happened is the point of
+          // keeping both numbers.
+          const wiped = day.fan_gain === 0 && (day.fan_gain_observed ?? 0) > 0;
+          const value = wiped ? day.fan_gain_observed : day.fan_gain;
+          return (
             <div
-              className={`capsule w-full ${wiped ? "bg-cream-300" : "bg-teal-400"}`}
-              style={{ height: Math.max(2, (value / max) * 96) }}
+              key={day.ymd}
+              className={`flex-1 rounded-t-[3px] transition-colors hover:bg-teal-600 ${
+                wiped ? "bg-cream-300" : "bg-teal-400"
+              }`}
+              style={{ height: Math.max(2, (value / max) * HEIGHT) }}
+              title={
+                wiped
+                  ? `${ymdLabel(day.ymd)} · ${fullFans(value)} earned, wiped by a club move`
+                  : `${ymdLabel(day.ymd)} · ${fullFans(value)}`
+              }
             />
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+
+      <div className="mt-1 flex justify-between text-[10px] text-ink-400">
+        <span>{ymdLabel(days[0]!.ymd)}</span>
+        <span className="tnum">peak {compactFans(max)}</span>
+        <span>{ymdLabel(days.at(-1)!.ymd)}</span>
+      </div>
     </div>
   );
 }
