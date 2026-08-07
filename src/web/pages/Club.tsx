@@ -83,6 +83,18 @@ export function Club() {
         )}
       </div>
 
+      {/* D027: chrono re-attributes a member's whole month to their current
+          club, so a past month lists today's members with that month's
+          numbers — not whoever was actually in the club back then. Saying so
+          is cheaper than letting people draw the wrong conclusion. */}
+      {month && (
+        <p className="card bg-lav-100 px-4 py-2.5 text-sm text-ink-600">
+          Showing <span className="font-semibold">today's members</span> with their{" "}
+          {monthLabel(Number(month))} numbers. Chronogenesis keeps no record of who was
+          in a club in a past month, so this is not the roster as it stood then.
+        </p>
+      )}
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <StatPill label="Club rank" value={data.club.rank ? `#${data.club.rank}` : "—"} />
         <StatPill label="Members" value={String(data.leaderboard.length)} />

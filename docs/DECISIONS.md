@@ -395,3 +395,31 @@ rennnnnnnnnnnko, YPurren Chan, vae, spadez and Lia — and all six genuinely
 joined in August according to `join_time`. Zero false positives. So the
 backfill's denominator is accurate in practice today; the stint path guards a
 case that has not yet occurred rather than one currently going wrong.
+
+---
+
+## D027 — Historical club views show the current roster, not the historical one
+**2026-08-07 · verified · ACTIVE — known limitation**
+
+`member_day.circle_id` for any backfilled day is the club the member is in
+**now**, not the club they were in on that day.
+
+This falls straight out of D009: chronogenesis re-attributes a member's whole
+month to their current club, so backfilling UmaParty's July writes
+`circle_id = UmaParty` for the July days of everyone currently in UmaParty —
+including days they actually spent elsewhere.
+
+Measured on 15 July 2026: each club's row count for that day equals its
+*current* member count (30 / 30 / 30 / 29), not its July roster.
+
+Not fixable from the API — chronogenesis holds no historical roster either, and
+its own month view behaves the same way. `club_stint` will make it correct for
+every day from go-live onward, but nothing can recover it for earlier months.
+
+Consequence for the UI: the club page's month picker must not claim to show who
+was in the club that month. It shows today's members with that month's numbers,
+and says so.
+
+Member pages are unaffected — a member's own history is theirs regardless of
+which club it is attributed to, and `club_stint` gives them a real club timeline
+from go-live.
