@@ -273,6 +273,13 @@ the reshuffle pool at all:
 With it in the pool, 72 of 147 members (49%) would change club; with it out,
 42 of 119 (35%). Seeded in the pool at slot 5 pending Ivan's decision.
 
+**This question answers itself at the next reshuffle.** `club_stint` records
+every cross-club move from go-live onward, so after the first reshuffle we
+observe, a single query settles it: if members move between カック・サドル and the
+UmaPa clubs, it is in the pool; if movement only ever happens among the four,
+it is not. Until then the evidence above is circumstantial, and the seeded
+value is a guess that officers can change in the admin area at any time.
+
 ---
 
 ## D021 — Officers can pin any member, not just leaders <a id="d021"></a>
