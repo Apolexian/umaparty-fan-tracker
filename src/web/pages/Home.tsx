@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Download, Search } from "lucide-react";
+import { Copy, Download, Image as ImageIcon, Search } from "lucide-react";
 
 import { useApi, type ClubSummary, type Placement, type SearchHit } from "../lib/api.ts";
-import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
+import { compactFans, fullFans, ymdDayMonth, ymdLong } from "../lib/format.ts";
 import { Button, ClubChip, Delta, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
 
 interface StandingsResponse {
@@ -17,6 +17,16 @@ export function Home() {
   const standings = useApi<StandingsResponse>("standings");
   const boardRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState<"image" | "message" | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+
+  // 2x so the numbers stay legible after Discord recompresses it, and an
+  // explicit background because the node itself is transparent.
+  const renderOptions = {
+    pixelRatio: 2,
+    backgroundColor: "#fdfaf1",
+    style: { padding: "16px" },
+  };
 
   /**
    * Export the board as a PNG.
@@ -30,13 +40,7 @@ export function Home() {
     setSaving(true);
     try {
       const { toPng } = await import("html-to-image");
-      const url = await toPng(boardRef.current, {
-        // 2x so the numbers stay legible after Discord recompresses it, and an
-        // explicit background because the node itself is transparent.
-        pixelRatio: 2,
-        backgroundColor: "#fdfaf1",
-        style: { padding: "16px" },
-      });
+      const url = await toPng(boardRef.current, renderOptions);
       const day = standings.data?.ymd ?? "";
       const link = document.createElement("a");
       link.download = `umaparty-${day}.png`;
@@ -45,6 +49,50 @@ export function Home() {
     } finally {
       setSaving(false);
     }
+  }
+
+  /**
+   * The daily post is two separate pastes: Discord takes an image or text from
+   * the clipboard, never both, so image and message get a button each rather
+   * than one that silently drops half.
+   */
+  async function copyImage() {
+    if (!boardRef.current) return;
+    setSaving(true);
+    setCopyError(null);
+    try {
+      const { toBlob } = await import("html-to-image");
+      const blob = await toBlob(boardRef.current, renderOptions);
+      if (!blob) throw new Error("could not render the board");
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      flash("image");
+    } catch (error) {
+      setCopyError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Mirrors the spreadsheet formula this replaces, club order and all. */
+  function discordMessage(): string {
+    const day = standings.data ? ymdDayMonth(standings.data.ymd) : "";
+    const mentions = (clubs.data?.clubs ?? []).map((club) => `@${club.name}`).join(" ");
+    return `Daily Dose of Data ${day} ${mentions}`;
+  }
+
+  async function copyMessage() {
+    setCopyError(null);
+    try {
+      await navigator.clipboard.writeText(discordMessage());
+      flash("message");
+    } catch (error) {
+      setCopyError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function flash(what: "image" | "message") {
+    setCopied(what);
+    setTimeout(() => setCopied(null), 2000);
   }
 
   const byClub = useMemo(() => {
@@ -79,8 +127,8 @@ export function Home() {
 
       {clubs.data && standings.data && (
         <section>
-          <div className="mb-2 flex items-center gap-3">
-            <span className="text-xs text-ink-400">{ymdLong(standings.data.ymd)}</span>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-xs text-ink-400">{ymdLong(standings.data.ymd)}</span>
             <Button
               tone="quiet"
               className="!px-2.5 !py-1 text-xs"
@@ -91,7 +139,25 @@ export function Home() {
                 <Download size={13} /> {saving ? "Saving…" : "Save as PNG"}
               </span>
             </Button>
+            <Button
+              tone="quiet"
+              className="!px-2.5 !py-1 text-xs"
+              disabled={saving}
+              onClick={copyImage}
+            >
+              <span className="flex items-center gap-1.5">
+                <ImageIcon size={13} /> {copied === "image" ? "Copied" : "Copy image"}
+              </span>
+            </Button>
+            <Button tone="quiet" className="!px-2.5 !py-1 text-xs" onClick={copyMessage}>
+              <span className="flex items-center gap-1.5">
+                <Copy size={13} /> {copied === "message" ? "Copied" : "Copy message"}
+              </span>
+            </Button>
+            <code className="text-[11px] text-ink-400">{discordMessage()}</code>
           </div>
+
+          {copyError && <ErrorNote message={`Copy failed: ${copyError}`} />}
 
           {/* Scrolls horizontally rather than reflowing: the point is seeing the
               clubs side by side, the way the sheet does. */}
@@ -117,7 +183,7 @@ export function Home() {
  * room for it and people read exact numbers off the board.
  */
 const BOARD_COLS =
-  "grid-cols-[2.25rem_1fr_4.5rem_4.25rem] lg:grid-cols-[2.25rem_1fr_6rem_4.25rem]";
+  "grid-cols-[2.25rem_1fr_4.5rem_4.25rem] lg:grid-cols-[2.25rem_1fr_6rem_5.75rem]";
 
 function BoardFans({ value }: { value: number }) {
   return (
@@ -135,7 +201,7 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
   const clubTotal = members.reduce((sum, m) => sum + m.mtdAvg, 0);
 
   return (
-    <div className="card min-w-[17rem] flex-1 overflow-hidden lg:min-w-[19rem]">
+    <div className="card min-w-[17rem] flex-1 overflow-hidden lg:min-w-[20.5rem]">
       <div className="border-b-2 border-cream-300 bg-cream-100 px-3 py-2">
         <div className="flex items-center gap-2">
           <Link to={`/club/${club.circle_id}`} className="hover:opacity-80">
@@ -181,7 +247,7 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
               <RankBadge rank={index + 1} />
               <span className="truncate text-sm font-semibold text-ink-900">{member.name}</span>
               <BoardFans value={member.mtdAvg} />
-              <Delta value={member.mtdAvgDelta} className="text-right text-xs" />
+              <Delta value={member.mtdAvgDelta} full className="text-right text-xs" />
             </Link>
           </li>
         ))}

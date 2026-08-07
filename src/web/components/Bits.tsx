@@ -1,8 +1,21 @@
 import { Link } from "react-router-dom";
-import { compactFans, signed } from "../lib/format.ts";
+import { compactFans, signed, signedFull } from "../lib/format.ts";
 
-/** Day-over-day change. Darker teal/coral steps: the brand tones fail AA. */
-export function Delta({ value, className = "" }: { value: number; className?: string }) {
+/**
+ * Day-over-day change. Darker teal/coral steps: the brand tones fail AA.
+ *
+ * `full` spells the number out where there is room for it (desktop), matching
+ * the fans column beside it.
+ */
+export function Delta({
+  value,
+  className = "",
+  full = false,
+}: {
+  value: number;
+  className?: string;
+  full?: boolean;
+}) {
   if (value === 0) {
     return <span className={`tnum text-ink-400 ${className}`}>—</span>;
   }
@@ -12,7 +25,14 @@ export function Delta({ value, className = "" }: { value: number; className?: st
       className={`tnum font-semibold ${up ? "text-teal-700" : "text-coral-700"} ${className}`}
       title={`${up ? "up" : "down"} ${Math.abs(value).toLocaleString("en-US")} vs the previous day`}
     >
-      {signed(value)}
+      {full ? (
+        <>
+          <span className="lg:hidden">{signed(value)}</span>
+          <span className="hidden lg:inline">{signedFull(value)}</span>
+        </>
+      ) : (
+        signed(value)
+      )}
     </span>
   );
 }

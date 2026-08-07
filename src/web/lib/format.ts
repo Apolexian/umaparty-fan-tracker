@@ -15,6 +15,19 @@ export function signed(value: number): string {
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${compactFans(Math.abs(value))}`;
 }
 
+export function signedFull(value: number): string {
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${fullFans(Math.abs(value))}`;
+}
+
+/** 20260807 -> "7 August" — the Discord message carries no year. */
+export function ymdDayMonth(ymd: number): string {
+  const months = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  return `${ymd % 100} ${months[(Math.floor(ymd / 100) % 100) - 1] ?? "?"}`;
+}
+
 /** 20260806 -> "6 Aug" */
 export function ymdLabel(ymd: number): string {
   const day = ymd % 100;
