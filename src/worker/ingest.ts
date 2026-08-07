@@ -367,11 +367,17 @@ async function stintStatements(
 }
 
 /**
- * Day-of-month each member's current stint in this club began, for members
- * whose stint started during the month being ingested.
+ * Day-of-month each member's current stint in this club effectively began, for
+ * the month being ingested.
  *
  * Our own records beat the leading-zeros heuristic in `derive.ts`, which cannot
  * tell a mover apart from a member who simply gained nothing that day (D017).
+ *
+ * Every open stint is returned, not only those that started this month: a
+ * member who has been here since an earlier month started the month on day 1,
+ * and omitting them would drop them back onto the heuristic, which shrinks the
+ * denominator of anyone who happened to gain nothing on the 1st and silently
+ * inflates their average.
  */
 async function currentStintStarts(
   env: Env,
@@ -379,19 +385,27 @@ async function currentStintStarts(
   year: number,
   month: number,
 ): Promise<Map<number, number>> {
-  const monthStart = toYmd(year, month, 1);
   const monthEnd = toYmd(year, month, 31);
 
   const { results } = await env.DB.prepare(
     `SELECT friend_viewer_id, MIN(start_ymd) AS start_ymd
        FROM club_stint
-      WHERE circle_id = ? AND end_ymd IS NULL AND start_ymd BETWEEN ? AND ?
+      WHERE circle_id = ? AND end_ymd IS NULL AND start_ymd <= ?
       GROUP BY friend_viewer_id`,
   )
-    .bind(circleId, monthStart, monthEnd)
+    .bind(circleId, monthEnd)
     .all<{ friend_viewer_id: number; start_ymd: number }>();
 
-  return new Map(results.map((r) => [r.friend_viewer_id, r.start_ymd % 100]));
+  const monthStart = toYmd(year, month, 1);
+
+  return new Map(
+    results.map((r) => [
+      r.friend_viewer_id,
+      // Started earlier than this month, so as far as this month is concerned
+      // they were here from the 1st.
+      r.start_ymd < monthStart ? 1 : r.start_ymd % 100,
+    ]),
+  );
 }
 
 /**
