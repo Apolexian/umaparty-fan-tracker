@@ -71,6 +71,15 @@
   --color-coral-500: oklch(63% 0.19 27);
   --color-coral-700: oklch(52% 0.18 27);
 
+  /* Gold, for rank and achievement only. The game marks standing with gold
+     laurels and trophies, so gold reads as "rank" to these players before
+     they read any label. Never used decoratively. */
+  --color-gold-100: oklch(96% 0.05 85);
+  --color-gold-300: oklch(88% 0.13 85);
+  --color-gold-500: oklch(78% 0.16 80);
+  --color-gold-700: oklch(58% 0.13 75);
+  --color-gold-900: oklch(42% 0.09 70);
+
   --font-display: "Baloo 2", ui-rounded, "Segoe UI", system-ui, sans-serif;
   --font-sans: "Figtree", ui-sans-serif, system-ui, sans-serif;
 
@@ -147,6 +156,41 @@
   .row-lift:hover {
     transform: translateY(-1px);
     box-shadow: var(--shadow-lift);
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Borrowed from the game's own UI, which the members look at daily.
+   * Umamusume marks interactive things with a chunky button that has a
+   * solid darker lip and presses down when tapped. It is unmistakably
+   * *not* the flat rounded-2xl card, which is the point twice over: it
+   * matches what these players expect, and it is nothing like generated
+   * UI. See DESIGN.md.
+   * ------------------------------------------------------------------ */
+  .chunky {
+    border-radius: var(--radius-pill);
+    box-shadow: 0 4px 0 var(--chunky-lip, var(--color-teal-700));
+    transition:
+      transform 90ms ease,
+      box-shadow 90ms ease;
+  }
+
+  .chunky:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 var(--chunky-lip, var(--color-teal-700));
+  }
+
+  /* Angled banner header, as the game uses for section titles. */
+  .ribbon {
+    clip-path: polygon(0 0, calc(100% - 0.9rem) 0, 100% 100%, 0 100%);
+    padding-right: 1.6rem;
+  }
+
+  /* White-stroked display text, as the game sets its headings. Only legible
+     over a saturated fill — never over cream. paint-order keeps the stroke
+     behind the glyph so letterforms stay crisp. */
+  .stroked {
+    -webkit-text-stroke: 3px var(--color-ink-900);
+    paint-order: stroke fill;
   }
 }
 

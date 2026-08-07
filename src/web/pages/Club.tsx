@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { useApi, type ClubSummary, type LeaderboardRow } from "../lib/api.ts";
 import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
-import { ClubChip, Delta, ErrorNote, RankBadge, Spinner, StatPill } from "../components/Bits.tsx";
+import { Delta, ErrorNote, RankBadge, Ribbon, Spinner, StatPill } from "../components/Bits.tsx";
 
 interface ClubResponse {
   ymd: number;
@@ -62,8 +62,7 @@ export function Club() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <ClubChip name={data.club.name} slotOrder={data.club.slot_order} />
-        <h1 className="font-display text-2xl font-extrabold text-ink-900">{data.club.name}</h1>
+        <Ribbon>{data.club.name}</Ribbon>
         <span className="text-xs text-ink-400">{ymdLong(data.ymd)}</span>
 
         {data.months.length > 0 && (

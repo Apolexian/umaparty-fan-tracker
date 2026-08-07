@@ -11,10 +11,10 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-cream-100">
-      <header className="border-b border-cream-300 bg-cream-50">
+      <header className="border-b-4 border-teal-600 bg-teal-500">
         <div className="mx-auto flex max-w-5xl items-center gap-4 px-4 py-3">
-          <Link to="/" className="font-display text-lg font-extrabold text-ink-900">
-            Uma<span className="text-teal-700">Party</span>
+          <Link to="/" className="font-display text-xl font-extrabold text-cream-50">
+            Uma<span className="text-gold-300">Party</span>
           </Link>
 
           <nav className="ml-auto flex gap-1">
@@ -24,10 +24,10 @@ export function Layout({ children }: { children: ReactNode }) {
                 to={item.to}
                 end={item.to === "/"}
                 className={({ isActive }) =>
-                  `capsule px-3 py-1.5 text-sm font-semibold transition-colors ${
+                  `px-3 py-1.5 text-sm font-bold transition-colors ${
                     isActive || (item.to === "/" && pathname.startsWith("/club"))
-                      ? "bg-teal-500 text-cream-50"
-                      : "text-ink-600 hover:bg-cream-200"
+                      ? "chunky bg-cream-50 text-teal-800 [--chunky-lip:var(--color-cream-300)]"
+                      : "capsule text-cream-50/90 hover:bg-teal-600"
                   }`
                 }
               >

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 import { useApi, type ClubSummary, type Placement } from "../lib/api.ts";
 import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
-import { ClubChip, Delta, DirectionMark, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
+import { ClubChip, Delta, DirectionMark, ErrorNote, RankBadge, Ribbon, Spinner } from "../components/Bits.tsx";
 
 interface StandingsResponse {
   ymd: number;
@@ -60,7 +60,7 @@ export function Standings() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="font-display text-2xl font-extrabold text-ink-900">Standings</h1>
+        <Ribbon>Standings</Ribbon>
         <p className="mt-1 text-sm text-ink-500">
           Everyone across the clubs, ranked by fans per day. If the reshuffle happened
           today, <span className="font-semibold text-ink-700">{movers}</span> of{" "}

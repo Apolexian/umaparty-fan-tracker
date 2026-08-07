@@ -13,7 +13,7 @@ import {
 import { Check, LogOut, RotateCcw, Undo2 } from "lucide-react";
 
 import { compactFans } from "../lib/format.ts";
-import { ClubChip, ErrorNote, Spinner } from "../components/Bits.tsx";
+import { Button, ClubChip, ErrorNote, Ribbon, Spinner } from "../components/Bits.tsx";
 
 interface Officer {
   id: number;
@@ -145,13 +145,9 @@ function LoginForm({ onSignedIn }: { onSignedIn: (officer: Officer) => void }) {
 
       {error && <ErrorNote message={error} />}
 
-      <button
-        type="submit"
-        disabled={busy}
-        className="capsule w-full bg-teal-500 px-4 py-2.5 font-semibold text-cream-50 disabled:opacity-60"
-      >
+      <Button type="submit" disabled={busy} className="w-full py-2.5">
         {busy ? "Signing in…" : "Sign in"}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -172,7 +168,7 @@ function Noticeboard() {
 
   return (
     <section className="space-y-3">
-      <h2 className="font-display text-xl font-bold text-ink-900">Noticeboard</h2>
+      <Ribbon>Noticeboard</Ribbon>
 
       <form
         className="flex gap-2"
@@ -190,9 +186,7 @@ function Noticeboard() {
           placeholder="Leave a note for the other officers"
           className="card flex-1 bg-cream-50 px-4 py-2.5 text-sm outline-none focus:border-teal-400"
         />
-        <button className="capsule bg-teal-500 px-4 py-2 text-sm font-semibold text-cream-50">
-          Post
-        </button>
+        <Button type="submit">Post</Button>
       </form>
 
       <ul className="space-y-2">
@@ -367,7 +361,7 @@ function RosterEditor() {
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="font-display text-xl font-bold text-ink-900">Proposed roster</h2>
+        <Ribbon>Proposed roster</Ribbon>
         {status === "final" && (
           <span className="capsule bg-teal-500 px-2.5 py-0.5 text-xs font-semibold text-cream-50">
             finalised
@@ -379,25 +373,26 @@ function RosterEditor() {
         {saving && <span className="text-xs text-teal-700">saving…</span>}
 
         <div className="ml-auto flex gap-2">
-          <button
+          <Button
+            tone="quiet"
+            title="Discard hand edits and reseed from the projection"
             onClick={async () => {
               await api("roster", { method: "POST", body: JSON.stringify({ action: "reset" }) });
               reload();
             }}
-            className="capsule flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold text-ink-600 hover:bg-cream-200"
-            title="Discard hand edits and reseed from the projection"
           >
-            <RotateCcw size={13} /> Reset
-          </button>
-          <button
+            <span className="flex items-center gap-1.5">
+              <RotateCcw size={13} /> Reset
+            </span>
+          </Button>
+          <Button
             onClick={async () => {
               await api("roster", { method: "POST", body: JSON.stringify({ action: "finalise" }) });
               reload();
             }}
-            className="capsule bg-teal-500 px-3 py-1.5 text-sm font-semibold text-cream-50"
           >
             Finalise
-          </button>
+          </Button>
         </div>
       </div>
 

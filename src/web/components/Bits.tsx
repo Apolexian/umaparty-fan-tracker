@@ -96,17 +96,73 @@ export function StatPill({
   );
 }
 
-/** Rank badge. Top three get the accent fill; it is a fill, not text. */
+/**
+ * Rank badge.
+ *
+ * Gold for the top three, because the game marks standing with gold laurels
+ * and these players read gold as "rank" before they read any label. Teal for
+ * the rest of the top ten, plain otherwise. Always a fill — brand teal is
+ * 2.45:1 on cream and can never carry text.
+ */
 export function RankBadge({ rank }: { rank: number }) {
-  const top = rank <= 3;
+  const tone =
+    rank <= 3
+      ? "bg-gold-500 text-gold-900 ring-1 ring-gold-700/40"
+      : rank <= 10
+        ? "bg-teal-500 text-cream-50"
+        : "bg-cream-200 text-ink-600";
+
   return (
     <span
-      className={`capsule tnum inline-flex h-7 min-w-7 items-center justify-center px-2 text-sm font-bold ${
-        top ? "bg-teal-500 text-cream-50" : "bg-cream-200 text-ink-600"
-      }`}
+      className={`capsule tnum inline-flex h-7 min-w-7 items-center justify-center px-2 text-sm font-bold ${tone}`}
     >
       {rank}
     </span>
+  );
+}
+
+/** Angled banner section heading, as the game sets its section titles. */
+export function Ribbon({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="ribbon font-display inline-block bg-teal-500 py-1 pl-3 text-lg font-extrabold text-cream-50">
+      {children}
+    </h2>
+  );
+}
+
+/** Chunky pressable button with the game's solid lip. */
+export function Button({
+  children,
+  onClick,
+  type = "button",
+  tone = "teal",
+  className = "",
+  disabled,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  type?: "button" | "submit";
+  tone?: "teal" | "quiet";
+  className?: string;
+  disabled?: boolean;
+  title?: string;
+}) {
+  const tones = {
+    teal: "bg-teal-500 text-cream-50 [--chunky-lip:var(--color-teal-700)]",
+    quiet: "bg-cream-200 text-ink-700 [--chunky-lip:var(--color-cream-300)]",
+  };
+
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`chunky px-4 py-2 text-sm font-bold disabled:opacity-60 ${tones[tone]} ${className}`}
+    >
+      {children}
+    </button>
   );
 }
 

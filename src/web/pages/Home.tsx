@@ -1,45 +1,78 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
 
-import { useApi, type ClubSummary, type SearchHit } from "../lib/api.ts";
-import { compactFans, ymdLong } from "../lib/format.ts";
-import { ClubChip, ErrorNote, Spinner } from "../components/Bits.tsx";
+import { useApi, type ClubSummary, type Placement, type SearchHit } from "../lib/api.ts";
+import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
+import { ClubChip, Delta, ErrorNote, RankBadge, Ribbon, Spinner } from "../components/Bits.tsx";
+
+interface StandingsResponse {
+  ymd: number;
+  placements: Placement[];
+}
 
 /**
- * Most people arrive from a Discord link, on a phone, to answer one question:
- * where do I stand? So this page leads with the search box and their own row,
- * not a dashboard. (DESIGN.md)
+ * The whole tracking sheet, on one screen, clickable.
+ *
+ * This is the view the clubs already think in — five columns, ranked, average
+ * daily fans and the change since yesterday. Members recognise it instantly
+ * because it is the screenshot they have been sent every day. Search sits above
+ * it for anyone who just wants their own row.
  */
 export function Home() {
-  const { data, error, loading } = useApi<{ ymd: number; clubs: ClubSummary[] }>("clubs");
+  const clubs = useApi<{ ymd: number; clubs: ClubSummary[] }>("clubs");
+  const standings = useApi<StandingsResponse>("standings");
+
+  const byClub = useMemo(() => {
+    const map = new Map<number, Placement[]>();
+    for (const placement of standings.data?.placements ?? []) {
+      const list = map.get(placement.currentCircleId);
+      if (list) list.push(placement);
+      else map.set(placement.currentCircleId, [placement]);
+    }
+    // Already ranked overall, so club order falls out for free.
+    return map;
+  }, [standings.data]);
+
+  const loading = clubs.loading || standings.loading;
+  const error = clubs.error ?? standings.error;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <section>
-        <h1 className="font-display text-3xl leading-tight font-extrabold text-ink-900">
-          Find yourself
+        <h1 className="font-display text-4xl leading-none font-extrabold text-ink-900">
+          Daily Dose of Data
         </h1>
-        <p className="mt-1 text-sm text-ink-500">
-          Search by your current name — or one you used to go by.
+        <p className="mt-1.5 text-sm text-ink-500">
+          Every club, every member, updated daily. Tap anyone to see their breakdown.
         </p>
-        <MemberSearch clubs={data?.clubs ?? []} />
+        <MemberSearch clubs={clubs.data?.clubs ?? []} />
       </section>
 
-      {loading && <Spinner label="Loading clubs" />}
+      {loading && <Spinner label="Loading the board" />}
       {error && <ErrorNote message={error} />}
 
-      {data && (
+      {clubs.data && standings.data && (
         <section>
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="font-display text-xl font-bold text-ink-900">The clubs</h2>
-            <span className="text-xs text-ink-400">Data to {ymdLong(data.ymd)}</span>
+          <div className="mb-3 flex flex-wrap items-baseline gap-3">
+            <Ribbon>The board</Ribbon>
+            <span className="text-xs text-ink-400">
+              Last updated {ymdLong(standings.data.ymd)}
+            </span>
           </div>
 
-          <div className="space-y-2">
-            {data.clubs.map((club) => (
-              <ClubCard key={club.circle_id} club={club} />
-            ))}
+          {/* Scrolls horizontally rather than reflowing: the point is seeing the
+              clubs side by side, the way the sheet does. */}
+          <div className="-mx-4 overflow-x-auto px-4 pb-2">
+            <div className="flex min-w-max gap-3">
+              {clubs.data.clubs.map((club) => (
+                <ClubColumn
+                  key={club.circle_id}
+                  club={club}
+                  members={byClub.get(club.circle_id) ?? []}
+                />
+              ))}
+            </div>
           </div>
         </section>
       )}
@@ -47,32 +80,59 @@ export function Home() {
   );
 }
 
-function ClubCard({ club }: { club: ClubSummary }) {
+function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[] }) {
+  const clubTotal = members.reduce((sum, m) => sum + m.mtdAvg, 0);
+
   return (
-    <Link
-      to={`/club/${club.circle_id}`}
-      className="card row-lift flex items-center gap-3 px-4 py-3"
-    >
-      <ClubChip name={club.name} slotOrder={club.slot_order} />
-
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm text-ink-500">{club.comment || " "}</div>
-      </div>
-
-      <div className="text-right">
-        <div className="tnum font-display text-lg leading-none font-bold text-ink-900">
-          {club.club_daily_avg ? compactFans(club.club_daily_avg) : "—"}
-        </div>
-        <div className="text-[11px] text-ink-400">fans / day</div>
-      </div>
-
-      <div className="w-16 text-right">
-        <div className="tnum text-sm font-semibold text-ink-700">
+    <div className="card w-[19rem] shrink-0 overflow-hidden">
+      <Link
+        to={`/club/${club.circle_id}`}
+        className="flex items-center gap-2 border-b-2 border-cream-300 bg-cream-100 px-3 py-2 hover:bg-cream-200"
+      >
+        <ClubChip name={club.name} slotOrder={club.slot_order} />
+        <span className="tnum ml-auto text-xs font-extrabold text-gold-700">
           {club.rank ? `#${club.rank}` : "—"}
-        </div>
-        <div className="text-[11px] text-ink-400">{club.tracked_members} members</div>
+        </span>
+      </Link>
+
+      <div className="grid grid-cols-[2.25rem_1fr_4.5rem_4.25rem] gap-1 border-b border-cream-300 px-2 py-1.5 text-[11px] font-bold text-ink-500">
+        <span>#</span>
+        <span>Name</span>
+        <span className="text-right">Fans/day</span>
+        <span className="text-right">vs prev</span>
       </div>
-    </Link>
+
+      <ul>
+        {members.map((member, index) => (
+          <li key={member.friendViewerId}>
+            <Link
+              to={`/m/${member.friendViewerId}`}
+              className="grid grid-cols-[2.25rem_1fr_4.5rem_4.25rem] items-center gap-1 border-b border-cream-200 px-2 py-1 last:border-0 hover:bg-teal-50"
+            >
+              <RankBadge rank={index + 1} />
+              <span className="truncate text-sm font-semibold text-ink-900">{member.name}</span>
+              <span
+                className="tnum text-right font-display text-sm font-bold text-ink-900"
+                title={fullFans(member.mtdAvg)}
+              >
+                {compactFans(member.mtdAvg)}
+              </span>
+              <Delta value={member.mtdAvgDelta} className="text-right text-xs" />
+            </Link>
+          </li>
+        ))}
+        {members.length === 0 && (
+          <li className="px-3 py-6 text-center text-xs text-ink-400">no data yet</li>
+        )}
+      </ul>
+
+      <div className="flex items-center gap-2 border-t-2 border-cream-300 bg-cream-100 px-3 py-1.5 text-[11px] text-ink-500">
+        <span>{members.length} members</span>
+        <span className="tnum ml-auto font-bold text-ink-700" title={fullFans(clubTotal)}>
+          {compactFans(clubTotal)}/day
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -80,7 +140,6 @@ function MemberSearch({ clubs }: { clubs: ClubSummary[] }) {
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const navigate = useNavigate();
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query.trim()), 200);
@@ -91,19 +150,14 @@ function MemberSearch({ clubs }: { clubs: ClubSummary[] }) {
     debounced.length >= 2 ? `search?q=${encodeURIComponent(debounced)}` : null,
   );
 
-  const clubById = useMemo(
-    () => new Map(clubs.map((c) => [c.circle_id, c])),
-    [clubs],
-  );
-
+  const clubById = useMemo(() => new Map(clubs.map((c) => [c.circle_id, c])), [clubs]);
   const results = data?.results ?? [];
 
   return (
     <div className="mt-4">
-      <div className="card flex items-center gap-2 px-4 py-3 focus-within:border-teal-400">
+      <div className="card flex items-center gap-2 border-2 px-4 py-2.5 focus-within:border-teal-400">
         <Search size={18} className="shrink-0 text-teal-700" aria-hidden />
         <input
-          ref={inputRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => {
@@ -111,7 +165,7 @@ function MemberSearch({ clubs }: { clubs: ClubSummary[] }) {
               navigate(`/m/${results[0].friend_viewer_id}`);
             }
           }}
-          placeholder="Your trainer name"
+          placeholder="Find yourself — current or former name"
           aria-label="Search for a member by name"
           className="w-full bg-transparent text-base outline-none placeholder:text-ink-400"
         />
@@ -144,11 +198,7 @@ function MemberSearch({ clubs }: { clubs: ClubSummary[] }) {
                 )}
 
                 {club && (
-                  <ClubChip
-                    name={club.name}
-                    slotOrder={club.slot_order}
-                    className="ml-auto"
-                  />
+                  <ClubChip name={club.name} slotOrder={club.slot_order} className="ml-auto" />
                 )}
               </Link>
             );
