@@ -80,7 +80,9 @@
   --radius-card: 12px;
   --radius-tight: 6px;
 
-  --shadow-soft: 0 1px 2px oklch(49% 0.088 201.1 / 0.06), 0 4px 12px oklch(49% 0.088 201.1 / 0.05);
+  /* One shadow, teal-tinted, used only on row hover. Cards sit flat on a
+     border — DESIGN.md calls for none or one, and a token nothing references
+     is a claim the system does not honour. */
   --shadow-lift: 0 2px 4px oklch(49% 0.088 201.1 / 0.08), 0 8px 20px oklch(49% 0.088 201.1 / 0.08);
 }
 

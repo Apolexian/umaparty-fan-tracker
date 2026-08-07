@@ -74,7 +74,7 @@ different scales, which is what makes it read as a system.
 
 ## Everything else
 
-- **Shadows**: none, or one soft teal-tinted shadow (`--shadow-soft`). No glows.
+- **Shadows**: one teal-tinted shadow (`--shadow-lift`), on row hover only. Cards sit flat on a border. No glows.
 - **Committed light theme.** Cute-and-bubbly does not survive an inverted token
   dump. Dark mode, if it ever arrives, is a second real design.
 - **Motion**: fan counts roll up on mount, rank arrows animate, rows lift on
