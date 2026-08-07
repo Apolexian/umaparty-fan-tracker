@@ -12,6 +12,7 @@ import {
   type ChartOptions,
   type TooltipItem,
 } from "chart.js";
+import { useState } from "react";
 import { Bar, Chart, Line } from "react-chartjs-2";
 
 import { compactFans, fullFans, ymdLabel } from "../lib/format.ts";
@@ -281,7 +282,7 @@ export interface MemberSeries {
 export function MemberProgressionChart({
   series,
   days,
-  height = 380,
+  height = 460,
   hidden,
   onToggle,
 }: {
@@ -291,17 +292,23 @@ export function MemberProgressionChart({
   hidden: Set<number>;
   onToggle: (viewerId: number) => void;
 }) {
+  // Hovering a legend entry isolates that member. With thirty lines the pack
+  // is unreadable otherwise, and picking one line out by eye is impossible.
+  const [focus, setFocus] = useState<number | null>(null);
+
   if (series.length === 0 || days.length < 2) return null;
 
   const options = baseOptions("Total", true) as ChartOptions<"line">;
+  // One line at a time. `index` mode would list all thirty datasets at the
+  // hovered day, which is what it did before and is unreadable.
+  options.interaction = { mode: "nearest", axis: "xy", intersect: false };
+  options.plugins!.tooltip!.mode = "nearest";
+  options.plugins!.tooltip!.intersect = false;
   options.plugins!.tooltip!.callbacks = {
+    title: (items: TooltipItem<"line">[]) => items[0]?.label ?? "",
     label: (item: TooltipItem<"line">) =>
       `${item.dataset.label}: ${fullFans(Number(item.parsed.y))}`,
   };
-  // Thirty entries at once is unreadable; show the few nearest the cursor.
-  options.plugins!.tooltip!.mode = "nearest";
-  options.plugins!.tooltip!.intersect = false;
-  options.interaction = { mode: "nearest", axis: "x", intersect: false };
 
   const visible = series.filter((s) => !hidden.has(s.friendViewerId));
 
@@ -313,42 +320,66 @@ export function MemberProgressionChart({
           data={{
             labels: days.map((ymd) => ymdLabel(ymd)),
             datasets: visible.map((s) => {
-              const colour = seriesColour(series.indexOf(s));
+              const index = series.indexOf(s);
+              const colour = seriesColour(index);
+              const dimmed = focus !== null && focus !== s.friendViewerId;
+              const lifted = focus === s.friendViewerId;
               const byDay = new Map(s.points.map((p) => [p.ymd, p.value]));
+
               return {
                 label: s.name,
                 data: days.map((ymd) => byDay.get(ymd) ?? null),
-                borderColor: colour,
+                borderColor: dimmed ? "oklch(88% 0.01 260 / 0.35)" : colour,
                 backgroundColor: colour,
-                borderWidth: 1.75,
+                borderWidth: lifted ? 3.5 : 1.75,
                 pointRadius: 0,
-                pointHoverRadius: 4,
+                pointHoverRadius: 5,
                 tension: 0.25,
                 fill: false,
                 spanGaps: true,
+                // Draw the focused line last so it sits above the pack.
+                order: lifted ? 0 : 1,
               };
             }),
           }}
         />
       </div>
 
-      <ul className="mt-3 flex flex-wrap gap-1">
+      <div className="mt-3 flex items-center gap-3">
+        <span className="text-[11px] text-ink-400">
+          Hover a name to isolate it, click to hide it
+        </span>
+        {hidden.size > 0 && (
+          <button
+            onClick={() => hidden.forEach((id) => onToggle(id))}
+            className="text-[11px] font-semibold text-teal-700 hover:underline"
+          >
+            show all ({hidden.size} hidden)
+          </button>
+        )}
+      </div>
+
+      <ul
+        className="mt-1.5 grid gap-x-2 gap-y-0.5"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(9.5rem, 1fr))" }}
+        onMouseLeave={() => setFocus(null)}
+      >
         {series.map((s, i) => {
           const off = hidden.has(s.friendViewerId);
           return (
             <li key={s.friendViewerId}>
               <button
                 onClick={() => onToggle(s.friendViewerId)}
-                className={`flex items-center gap-1.5 rounded-[6px] px-1.5 py-0.5 text-[11px] transition-opacity hover:bg-cream-200 ${
+                onMouseEnter={() => setFocus(off ? null : s.friendViewerId)}
+                className={`flex w-full items-center gap-1.5 rounded-[6px] px-1.5 py-1 text-left text-xs transition-colors hover:bg-cream-200 ${
                   off ? "opacity-35" : ""
                 }`}
-                title={off ? "Show" : "Hide"}
               >
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
                   style={{ background: seriesColour(i) }}
                 />
-                <span className="max-w-28 truncate text-ink-700">{s.name}</span>
+                <span className="truncate text-ink-700">{s.name}</span>
               </button>
             </li>
           );
