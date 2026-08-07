@@ -116,7 +116,6 @@ export function projectPromotion(
   }
 
   // Members of clubs outside the pool are ranked for display but never placed.
-  const inPool = candidates.filter((c) => pooledIds.has(c.currentCircleId));
   const outside = new Set(
     candidates.filter((c) => !pooledIds.has(c.currentCircleId)).map((c) => c.friendViewerId),
   );

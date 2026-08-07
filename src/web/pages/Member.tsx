@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 
 import { useApi, type ClubSummary, type MemberDay, type Placement, type Stint } from "../lib/api.ts";
 import { compactFans, fullFans, ymdLabel, ymdLong } from "../lib/format.ts";
-import { ClubChip, Delta, DirectionMark, ErrorNote, Spinner, StatPill } from "../components/Bits.tsx";
+import { ClubChip, DirectionMark, ErrorNote, Spinner, StatPill } from "../components/Bits.tsx";
 import { Sparkline } from "../components/Sparkline.tsx";
 
 interface MemberResponse {
