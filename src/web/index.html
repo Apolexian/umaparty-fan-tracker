@@ -3,9 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>UmaParty Fan Tracker</title>
-    <meta name="description" content="Daily fan progress and standings for the UmaParty clubs." />
+    <title>Umaparty Fan Tracker</title>
+    <meta name="description" content="Daily fan progress and standings for the Umaparty clubs." />
     <meta name="theme-color" content="#00B5BE" />
+
+    <!-- The link gets shared into Discord, which reads these rather than the
+         page, since the app renders client-side. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Umaparty" />
+    <meta property="og:title" content="Umaparty Fan Tracker" />
+    <meta
+      property="og:description"
+      content="Daily fan progress and standings for the Umaparty clubs."
+    />
+    <meta name="twitter:card" content="summary" />
   </head>
   <body>
     <div id="root"></div>

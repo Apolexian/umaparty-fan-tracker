@@ -1,6 +1,6 @@
-# UmaParty Fan Tracker
+# Umaparty Fan Tracker
 
-A public site where members of the UmaParty clubs can see their own fan
+A public site where members of the Umaparty clubs can see their own fan
 progress, their standing, and where they would land in next month's reshuffle.
 Replaces a Google Sheet that members never had access to.
 
