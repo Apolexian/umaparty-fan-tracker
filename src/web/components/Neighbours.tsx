@@ -125,18 +125,20 @@ export function PromotionGauge({
   const cushion = here.entryThreshold != null ? placement.mtdAvg - here.entryThreshold : null;
 
   return (
-    <div className="grid gap-2 sm:grid-cols-2">
-      <div className="card px-4 py-3">
-        <div className="text-xs font-medium text-ink-500">
-          {above ? `To reach ${above.name}` : "Already in the top club"}
+    // Nothing to climb towards in the top club, so that card is dropped rather
+    // than left showing a dash under a label that states the obvious.
+    <div className={`grid gap-2 ${above ? "sm:grid-cols-2" : ""}`}>
+      {above && (
+        <div className="card px-4 py-3">
+          <div className="text-xs font-medium text-ink-500">To reach {above.name}</div>
+          <div className="tnum font-display text-2xl leading-tight font-bold text-teal-700">
+            {toPromote != null && toPromote > 0 ? `+${compactFans(toPromote)}` : "—"}
+          </div>
+          {toPromote != null && toPromote > 0 && (
+            <div className="text-[11px] text-ink-400">more fans per day</div>
+          )}
         </div>
-        <div className="tnum font-display text-2xl leading-tight font-bold text-teal-700">
-          {toPromote != null && toPromote > 0 ? `+${compactFans(toPromote)}` : "—"}
-        </div>
-        {toPromote != null && toPromote > 0 && (
-          <div className="text-[11px] text-ink-400">more fans per day</div>
-        )}
-      </div>
+      )}
 
       <div className="card px-4 py-3">
         <div className="text-xs font-medium text-ink-500">Clear of the {here.name} drop line by</div>
