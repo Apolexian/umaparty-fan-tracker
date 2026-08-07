@@ -22,7 +22,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not the 20 used elsewhere: wrangler 4.x refuses to run on
+          # anything older.
+          node-version: 22
           cache: npm
 
       - run: npm ci
