@@ -1,0 +1,11 @@
+# Copy to .dev.vars for local development. Never commit the real file.
+#
+# CHRONO_TOKEN   the chronogenesis API token (sent as a raw Authorization
+#                header, no Bearer prefix)
+# SESSION_SECRET any long random string; node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+# ENVIRONMENT    must be exactly "development" to enable /api/__ingest locally.
+#                Anything else denies it, including production.
+
+CHRONO_TOKEN=your-token-here
+SESSION_SECRET=generate-me
+ENVIRONMENT=development

@@ -35,8 +35,11 @@
     "enabled": true
   },
 
+  // Deployed value. `wrangler dev` overrides it from .dev.vars, which is how
+  // the local ingest trigger at /api/__ingest is enabled — it is denied unless
+  // ENVIRONMENT is explicitly "development".
   "vars": {
-    "ENVIRONMENT": "development"
+    "ENVIRONMENT": "production"
   }
 
   // Secrets, set via `wrangler secret put` — never in this file:

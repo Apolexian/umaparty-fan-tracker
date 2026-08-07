@@ -4,13 +4,17 @@
 // what the run actually did. This route runs the same code path and returns a
 // summary, which is what makes a local ingest verifiable.
 //
-// Guarded on ENVIRONMENT so it cannot be reached in production.
+// Deny by default: this only responds when ENVIRONMENT is explicitly
+// "development". An earlier version returned 404 only when ENVIRONMENT ===
+// "production", which meant a missing or mistyped var silently exposed an
+// unauthenticated endpoint that hammers the upstream API and writes to the
+// database. Fail closed, not open.
 
 import { ingestAll, latestDataYmd, recomputeOverallRanks, ymdOf } from "./ingest.ts";
 import type { Env } from "./types.ts";
 
 export async function handleDevTrigger(env: Env): Promise<Response> {
-  if (env.ENVIRONMENT === "production") {
+  if (env.ENVIRONMENT !== "development") {
     return new Response("not found", { status: 404 });
   }
 
