@@ -19,5 +19,7 @@
     "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "scripts", "tests", "vite.config.ts", "vitest.config.ts"]
+  // src/worker is checked separately by src/worker/tsconfig.json, which drops
+  // the DOM lib so Cloudflare's `caches.default` resolves.
+  "include": ["src/web", "scripts", "tests", "vite.config.ts", "vitest.config.ts"]
 }

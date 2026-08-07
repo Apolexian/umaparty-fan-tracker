@@ -1,0 +1,13 @@
+{
+  // Worker code is checked without the DOM lib: Cloudflare's CacheStorage adds
+  // `caches.default`, which the DOM's CacheStorage does not have, and including
+  // both makes the DOM version win. Mirrors how umaguide scopes its
+  // functions/tsconfig.json.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "types": ["@cloudflare/workers-types"],
+    "noEmit": true
+  },
+  "include": ["."]
+}

@@ -96,6 +96,8 @@ export interface ClubMonthResponse {
 
 export interface Env {
   DB: D1Database;
+  /** Static assets binding (the Vite build). Absent in unit tests. */
+  ASSETS?: Fetcher;
   CHRONO_TOKEN: string;
   SESSION_SECRET: string;
   ENVIRONMENT: string;

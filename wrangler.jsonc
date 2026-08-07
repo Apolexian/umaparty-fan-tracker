@@ -19,7 +19,7 @@
       "binding": "DB",
       "database_name": "umaparty",
       // Replace with the id printed by `npx wrangler d1 create umaparty`.
-      "database_id": "REPLACE_ME_AFTER_D1_CREATE",
+      "database_id": "local-placeholder-replace-after-d1-create",
       "migrations_dir": "migrations"
     }
   ],
@@ -36,7 +36,7 @@
   },
 
   "vars": {
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "development"
   }
 
   // Secrets, set via `wrangler secret put` — never in this file:
