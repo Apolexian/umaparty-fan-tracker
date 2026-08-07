@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Check, LogOut, RotateCcw, Undo2 } from "lucide-react";
+import { Check, LogOut, RefreshCw, RotateCcw, Undo2 } from "lucide-react";
 
 import { compactFans } from "../lib/format.ts";
 import { Button, ClubChip, ErrorNote, Ribbon, Spinner } from "../components/Bits.tsx";
@@ -92,6 +92,7 @@ export function Officers() {
         </button>
       </header>
 
+      <RefreshData />
       <Noticeboard />
       <RosterEditor />
     </div>
@@ -149,6 +150,46 @@ function LoginForm({ onSignedIn }: { onSignedIn: (officer: Officer) => void }) {
         {busy ? "Signing in…" : "Sign in"}
       </Button>
     </form>
+  );
+}
+
+/** Force a data pull without waiting for the daily cron. */
+function RefreshData() {
+  const [state, setState] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <section className="card flex flex-wrap items-center gap-3 px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-ink-900">Refresh the numbers</p>
+        <p className="text-xs text-ink-500">
+          {state ?? "Runs automatically after 10:15 UTC daily. Pull early after a reshuffle."}
+        </p>
+      </div>
+      <Button
+        tone="quiet"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setState("Pulling from chronogenesis…");
+          try {
+            const r = await api<{ ok: boolean; summaries: { status: string }[] }>("ingest", {
+              method: "POST",
+            });
+            const ok = r.summaries.filter((s) => s.status === "ok").length;
+            setState(`Done — ${ok} of ${r.summaries.length} clubs updated. Reload to see it.`);
+          } catch (e) {
+            setState(e instanceof Error ? e.message : String(e));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <span className="flex items-center gap-1.5">
+          <RefreshCw size={13} /> {busy ? "Working…" : "Refresh now"}
+        </span>
+      </Button>
+    </section>
   );
 }
 

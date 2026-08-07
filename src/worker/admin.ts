@@ -4,6 +4,7 @@
 // session, and every change is written to audit_log.
 
 import { audit, currentOfficer, hashPassword, login, logout, type Officer } from "./auth.ts";
+import { ingestAll, latestDataYmd, recomputeOverallRanks } from "./ingest.ts";
 import { projectPromotion, type Pin, type PromotionClub } from "./promotion.ts";
 import type { Env } from "./types.ts";
 
@@ -43,6 +44,8 @@ export async function handleAdmin(request: Request, env: Env): Promise<Response>
         return await roster(request, env, officer, url);
       case "officers":
         return await officers(request, env, officer);
+      case "ingest":
+        return await manualIngest(request, env, officer);
       default:
         return json({ error: "not found" }, 404);
     }
@@ -422,6 +425,47 @@ async function seedPlan(
   );
 
   return { id: planId, status: "draft", note: null };
+}
+
+// --------------------------------------------------------- manual ingest ----
+
+/**
+ * Force a data refresh without waiting for the cron.
+ *
+ * Needed on day one — the cron does not fire until 10:15 UTC, and the
+ * unauthenticated dev trigger is denied in production — but it earns its place
+ * beyond that: officers will want to pull fresh numbers after a reshuffle
+ * rather than wait a day to see whether it landed.
+ *
+ * Rate limited to once every 10 minutes across all officers, because it makes
+ * one upstream request per club and chronogenesis asked us not to hammer it.
+ */
+async function manualIngest(request: Request, env: Env, officer: Officer): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+
+  const recent = await env.DB.prepare(
+    `SELECT started_at FROM ingest_runs
+      WHERE kind IN ('daily', 'manual') AND started_at > ?
+      ORDER BY started_at DESC LIMIT 1`,
+  )
+    .bind(new Date(Date.now() - 10 * 60_000).toISOString())
+    .first<{ started_at: string }>();
+
+  if (recent) {
+    return json(
+      { error: `Data was refreshed at ${recent.started_at}. Try again in a few minutes.` },
+      429,
+    );
+  }
+
+  const summaries = await ingestAll(env);
+  await recomputeOverallRanks(env, await latestDataYmd(env));
+  await audit(env, officer.id, "ingest.manual", { clubs: summaries.length });
+
+  return json({
+    ok: summaries.every((s) => s.status === "ok"),
+    summaries,
+  });
 }
 
 // ------------------------------------------------------------- officers ----
