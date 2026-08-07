@@ -316,3 +316,47 @@ This differs from pinning (D021): a pin is a standing rule that survives into
 future months' projections, whereas a plan edit is a one-off override for a
 single month. Both exist because they answer different questions — "always keep
 this person here" versus "this month, do it differently".
+
+---
+
+## D023 — Stints start from the API's `join_time`, not first observation
+**2026-08-07 · verified · ACTIVE**
+
+When a member is first seen, their `club_stint.start_ymd` is taken from
+`club_friend_profile.join_time` where it parses and is not in the future,
+falling back to the day we observed them.
+
+Without this, the first ever ingest dates all 147 stints to deploy day, which
+would be plainly false and would corrupt the `days_active` denominator (D016)
+for anyone who joined earlier in the month.
+
+It recovered far more than expected. Start dates cluster hard on the 2nd and
+3rd of each month — 19 on 2 Aug, 36 on 3 Aug, 7 on 2 Jun, 7 on 2 May, 6 on
+2 Jul, 6 on 3 Jul — which is the signature of past reshuffles. D010 assumed
+cross-club movement before deploy day was unrecoverable; the *dates* of past
+moves turn out to be partially recoverable this way, though not which club
+someone moved from.
+
+---
+
+## D024 — Rank against the newest day held, not today's date
+**2026-08-07 · found by running it · ACTIVE**
+
+Chronogenesis publishes a day in arrears: on the 7th, the newest member data is
+for the 6th. `rank_overall` was being computed for the wall-clock date, so it
+updated a day with no rows and left the column null for every member.
+
+Anything that ranks or reads "the current standings" resolves the day with
+`SELECT MAX(ymd) FROM member_day` rather than `new Date()`.
+
+---
+
+## D025 — Officers can overfill a club; capacity is a warning
+**2026-08-07 · ACTIVE**
+
+The roster editor (D022) shows a club's count against its capacity and marks it
+red when over, but does not block the drop.
+
+The game is the real constraint, not this site, and officers are often
+mid-negotiation when they arrange a roster. A hard block would make the tool
+lie about what they intend to do.
