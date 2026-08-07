@@ -29,8 +29,10 @@ export async function handleApi(
   try {
     response = await route(path, url, env);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return json({ error: message }, 500);
+    // Logged in full, returned as a generic message: this endpoint is public,
+    // and a raw D1 error hands out table and column names.
+    console.error("api error", path, error);
+    return json({ error: "something went wrong" }, 500);
   }
 
   if (response.ok) {
@@ -39,18 +41,39 @@ export async function handleApi(
   return response;
 }
 
+/** Path ids are always positive integers; anything else is a bad request. */
+function parseId(raw: string | undefined): number | null {
+  if (!raw || !/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 async function route(path: string, url: URL, env: Env): Promise<Response> {
   const segments = path.split("/").filter(Boolean);
 
   switch (segments[0]) {
     case "clubs":
       return json(await getClubs(env));
-    case "club":
-      if (!segments[1]) return json({ error: "missing club id" }, 400);
-      return json(await getClub(env, Number(segments[1]), url.searchParams.get("month")));
-    case "member":
-      if (!segments[1]) return json({ error: "missing member id" }, 400);
-      return json(await getMember(env, Number(segments[1])));
+    case "club": {
+      const circleId = parseId(segments[1]);
+      if (circleId === null) return json({ error: "invalid club id" }, 400);
+
+      const monthRaw = url.searchParams.get("month");
+      // YYYYMM or nothing — an unparsable month must not reach the query.
+      const month = monthRaw && /^\d{6}$/.test(monthRaw) ? monthRaw : null;
+
+      return json(await getClub(env, circleId, month));
+    }
+    case "member": {
+      const viewerId = parseId(segments[1]);
+      if (viewerId === null) return json({ error: "invalid member id" }, 400);
+
+      const member = await getMember(env, viewerId);
+      // A real 404, not a 200 carrying an error: only ok responses are cached,
+      // so returning 200 here would pin "not found" at the edge for an hour —
+      // including for a member who appears in tomorrow's ingest.
+      return member ? json(member) : json({ error: "not found" }, 404);
+    }
     case "search":
       return json(await search(env, url.searchParams.get("q") ?? ""));
     case "standings":
@@ -146,7 +169,7 @@ async function getMember(env: Env, viewerId: number) {
     .bind(viewerId)
     .first();
 
-  if (!member) return { error: "not found" };
+  if (!member) return null;
 
   // Every name they have gone by — the point of D004.
   const { results: names } = await env.DB.prepare(
