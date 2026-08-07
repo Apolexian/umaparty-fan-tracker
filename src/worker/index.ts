@@ -1,3 +1,4 @@
+import { handleAdmin } from "./admin.ts";
 import { handleApi } from "./api.ts";
 import { handleDevTrigger } from "./dev-trigger.ts";
 import { ingestAll, latestDataYmd, recomputeOverallRanks } from "./ingest.ts";
@@ -11,6 +12,12 @@ export default {
     // anything outside /api/ is served as a static asset first.
     if (url.pathname === "/api/__ingest") {
       return handleDevTrigger(env);
+    }
+
+    // Officer routes are checked before the public ones: they mutate, require
+    // a session, and must never be served from the edge cache.
+    if (url.pathname.startsWith("/api/admin")) {
+      return handleAdmin(request, env);
     }
 
     if (url.pathname.startsWith("/api/")) {

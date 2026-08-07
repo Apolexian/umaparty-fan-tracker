@@ -40,8 +40,11 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
 
-      <footer className="mx-auto max-w-5xl px-4 pt-4 pb-10 text-xs text-ink-400">
-        Fan data from chronogenesis.net, refreshed daily after 10:00 UTC.
+      <footer className="mx-auto flex max-w-5xl items-center gap-3 px-4 pt-4 pb-10 text-xs text-ink-400">
+        <span>Fan data from chronogenesis.net, refreshed daily after 10:00 UTC.</span>
+        <Link to="/officers" className="ml-auto hover:text-teal-700">
+          Officers
+        </Link>
       </footer>
     </div>
   );
