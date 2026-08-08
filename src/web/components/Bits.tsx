@@ -2,7 +2,8 @@ import { Link } from "react-router-dom";
 import { compactFans, signed, signedFull } from "../lib/format.ts";
 
 /**
- * Day-over-day change. Darker teal/coral steps: the brand tones fail AA.
+ * Day-over-day change. Fixed green/red (#00B050/#FF0000) per club request —
+ * chosen over brand teal/coral, AA contrast be damned.
  *
  * `full` spells the number out where there is room for it (desktop), matching
  * the fans column beside it.
@@ -22,7 +23,7 @@ export function Delta({
   const up = value > 0;
   return (
     <span
-      className={`tnum font-semibold ${up ? "text-teal-700" : "text-coral-700"} ${className}`}
+      className={`tnum font-semibold ${up ? "text-[#00B050]" : "text-[#FF0000]"} ${className}`}
       title={`${up ? "up" : "down"} ${Math.abs(value).toLocaleString("en-US")} vs the previous day`}
     >
       {full ? (
