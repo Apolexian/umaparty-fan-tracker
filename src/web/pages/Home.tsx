@@ -139,7 +139,7 @@ export function Home() {
       {clubs.data && standings.data && (
         <section>
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-xs text-ink-400">{ymdLong(standings.data.ymd)}</span>
+            <span className="mr-1 text-xs text-ink-400">Data as of {ymdLong(standings.data.ymd)}</span>
             <Button
               tone="quiet"
               className="!px-2.5 !py-1 text-xs"
