@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Copy, Download, Image as ImageIcon, Search } from "lucide-react";
 
 import { useApi, type ClubSummary, type Placement, type SearchHit } from "../lib/api.ts";
-import { compactFans, fullFans, ymdDayMonth, ymdLong } from "../lib/format.ts";
+import { compactFans, fullFans, todayDayMonth, ymdLong } from "../lib/format.ts";
 import { Button, ClubChip, Delta, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
 
 interface StandingsResponse {
@@ -87,9 +87,8 @@ export function Home() {
 
   /** Mirrors the spreadsheet formula this replaces, club order and all. */
   function discordMessage(): string {
-    const day = standings.data ? ymdDayMonth(standings.data.ymd) : "";
     const mentions = (clubs.data?.clubs ?? []).map((club) => `@${club.name}`).join(" ");
-    return `Daily Dose of Data ${day} ${mentions}`;
+    return `Daily Dose of Data ${todayDayMonth()} ${mentions}`;
   }
 
   async function copyMessage() {

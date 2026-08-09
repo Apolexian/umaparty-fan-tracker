@@ -19,13 +19,18 @@ export function signedFull(value: number): string {
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${fullFans(Math.abs(value))}`;
 }
 
-/** 20260807 -> "7 August" — the Discord message carries no year. */
-export function ymdDayMonth(ymd: number): string {
+/**
+ * Today, local time, as "7 August" — the post date, not the data's date.
+ * Chronogenesis publishes a day in arrears (D024), so the numbers on the
+ * board are for yesterday even when this reads today.
+ */
+export function todayDayMonth(): string {
   const months = [
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
   ];
-  return `${ymd % 100} ${months[(Math.floor(ymd / 100) % 100) - 1] ?? "?"}`;
+  const now = new Date();
+  return `${now.getDate()} ${months[now.getMonth()]}`;
 }
 
 /** 20260806 -> "6 Aug" */
