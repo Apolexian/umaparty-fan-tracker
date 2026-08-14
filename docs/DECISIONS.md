@@ -85,15 +85,16 @@ The displacement mechanic here is unchanged; D021 extends it to non-leaders.
 
 The order below was the starting point. It is no longer fixed in code: clubs,
 their order, their capacity and their pool membership are officer-editable data
-(D020), and カック・サドル's position specifically is unresolved.
+(D020). カック・サドル's slot has since moved (see D020); its place in the pool
+at all is still unresolved.
 
 | slot | circle_id | name |
 |---|---|---|
 | 1 | 665160774 | UmaParty |
 | 2 | 720848953 | TwomaParty |
 | 3 | 928261417 | UmaPaThree |
-| 4 | 201002484 | UmaFourty |
-| 5 | 877539742 | カック・サドル |
+| 4 | 877539742 | カック・サドル |
+| 5 | 201002484 | UmaFourty |
 
 30 slots each (150 total). Current membership is 30/30/30/29/28 = 147.
 Capacity of 30 confirmed — see [D018](#d018).
@@ -277,7 +278,9 @@ the reshuffle pool at all:
   most recent addition
 
 With it in the pool, 72 of 147 members (49%) would change club; with it out,
-42 of 119 (35%). Seeded in the pool at slot 5 pending a decision.
+42 of 119 (35%). Seeded in the pool at slot 5, then moved to slot 4 by
+officers on 2026-08-14 (between UmaPaThree and UmaFourty) pending a decision
+on whether it belongs in the pool at all.
 
 **This question answers itself at the next reshuffle.** `club_stint` records
 every cross-club move from go-live onward, so after the first reshuffle we

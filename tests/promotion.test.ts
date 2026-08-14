@@ -58,7 +58,7 @@ function loadCandidates(): PromotionCandidate[] {
 const candidates = loadCandidates();
 const UMAPARTY = CLUBS[0].circleId;
 const TWOMA = CLUBS[1].circleId;
-const KAKKU = CLUBS[4].circleId;
+const KAKKU = 877539742;
 
 describe("real roster", () => {
   it("loads all five clubs", () => {
@@ -301,7 +301,7 @@ describe("projectPromotion", () => {
     });
 
     it("respects a reordered slot order", () => {
-      // Move カック・サドル from last to third.
+      // Move カック・サドル up one more, from fourth to third.
       const reordered: PromotionClub[] = clubs.map((c) => {
         if (c.circleId === KAKKU) return { ...c, slotOrder: 3 };
         if (c.slotOrder === 3) return { ...c, slotOrder: 4 };

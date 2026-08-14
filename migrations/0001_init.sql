@@ -253,5 +253,5 @@ INSERT INTO clubs (circle_id, name, slot_order, capacity, in_pool, is_active) VA
   (665160774, 'UmaParty',      1, 30, 1, 1),
   (720848953, 'TwomaParty',    2, 30, 1, 1),
   (928261417, 'UmaPaThree',    3, 30, 1, 1),
-  (201002484, 'UmaFourty',     4, 30, 1, 1),
-  (877539742, 'カック・サドル', 5, 30, 1, 1);
+  (877539742, 'カック・サドル', 4, 30, 1, 1),
+  (201002484, 'UmaFourty',     5, 30, 1, 1);
