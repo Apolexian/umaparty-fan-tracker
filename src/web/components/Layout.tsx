@@ -1,5 +1,8 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
+import { Moon, Sun } from "lucide-react";
+
+import { toggleTheme, useTheme } from "../lib/theme.ts";
 
 const NAV = [
   { to: "/", label: "Clubs" },
@@ -8,12 +11,13 @@ const NAV = [
 
 export function Layout({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  const theme = useTheme();
 
   return (
     <div className="min-h-dvh bg-cream-100">
-      <header className="border-b-4 border-teal-600 bg-teal-500">
+      <header className="border-b-4 border-[var(--color-header-border)] bg-[var(--color-header-bg)]">
         <div className="flex items-center gap-4 px-5 py-2.5">
-          <Link to="/" className="font-display text-xl font-extrabold text-cream-50">
+          <Link to="/" className="font-display text-xl font-extrabold text-white">
             Umaparty
           </Link>
 
@@ -26,14 +30,23 @@ export function Layout({ children }: { children: ReactNode }) {
                 className={({ isActive }) =>
                   `px-3 py-1.5 text-sm font-bold transition-colors ${
                     isActive || (item.to === "/" && pathname.startsWith("/club"))
-                      ? "chunky bg-cream-50 text-teal-800 [--chunky-lip:var(--color-cream-300)]"
-                      : "capsule text-cream-50/90 hover:bg-teal-600"
+                      ? "chunky bg-white text-teal-800 [--chunky-lip:oklch(85%_0.01_260)]"
+                      : "capsule text-white/90 hover:bg-black/15"
                   }`
                 }
               >
                 {item.label}
               </NavLink>
             ))}
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              className="capsule flex h-8 w-8 items-center justify-center text-white/90 hover:bg-black/15"
+            >
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
           </nav>
         </div>
       </header>

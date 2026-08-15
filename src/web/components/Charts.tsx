@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bar, Chart, Line } from "react-chartjs-2";
 
 import { compactFans, fullFans, ymdLabel } from "../lib/format.ts";
+import { useTheme } from "../lib/theme.ts";
 import { Button } from "./Bits.tsx";
 
 // The controllers matter, not just the elements: <Bar> and <Line> register
@@ -34,20 +35,40 @@ ChartJS.register(
   Tooltip,
 );
 
-// chart.js needs concrete colours, not CSS custom properties. These mirror the
-// @theme tokens in styles.css; keep them in step.
-const TEAL = "oklch(60% 0.106 201.1)";
-const TEAL_FILL = "oklch(75.5% 0.108 201.1 / 0.22)";
-const TEAL_BAR = "oklch(70.3% 0.1196 201.1)";
-const CREAM_BAR = "oklch(92% 0.026 85)";
-const INK_SOFT = "oklch(62% 0.012 320)";
-const GRID = "oklch(92% 0.026 85)";
-const INK_LINE = "oklch(34% 0.02 320)";
+// chart.js needs concrete colours, not CSS custom properties, so light and
+// dark palettes are duplicated here rather than read from styles.css. Keep
+// them in step with the @theme tokens and the dark-mode block below them.
+const PALETTE = {
+  light: {
+    teal: "oklch(60% 0.106 201.1)",
+    tealFill: "oklch(75.5% 0.108 201.1 / 0.22)",
+    tealBar: "oklch(70.3% 0.1196 201.1)",
+    mutedBar: "oklch(92% 0.026 85)",
+    softText: "oklch(62% 0.012 320)",
+    grid: "oklch(92% 0.026 85)",
+    line: "oklch(34% 0.02 320)",
+    tooltipBg: "oklch(22% 0.022 320)",
+  },
+  dark: {
+    teal: "oklch(70.3% 0.1196 201.1)",
+    tealFill: "oklch(60% 0.106 201.1 / 0.28)",
+    tealBar: "oklch(65% 0.11 201.1)",
+    mutedBar: "oklch(32% 0.035 300)",
+    softText: "oklch(66% 0.018 300)",
+    grid: "oklch(32% 0.035 300)",
+    line: "oklch(88% 0.012 300)",
+    tooltipBg: "oklch(12% 0.02 300)",
+  },
+};
 
 const FONT = { family: "Figtree, ui-sans-serif, system-ui, sans-serif", size: 11 };
 
 /** Shared axis/tooltip setup so the two charts read as one system. */
-function baseOptions(valueLabel: string, beginAtZero: boolean): ChartOptions<"line" | "bar"> {
+function baseOptions(
+  valueLabel: string,
+  beginAtZero: boolean,
+  palette: typeof PALETTE.light,
+): ChartOptions<"line" | "bar"> {
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -55,7 +76,7 @@ function baseOptions(valueLabel: string, beginAtZero: boolean): ChartOptions<"li
     plugins: {
       legend: { display: false },
       tooltip: {
-        backgroundColor: "oklch(22% 0.022 320)",
+        backgroundColor: palette.tooltipBg,
         titleFont: { ...FONT, weight: "bold" },
         bodyFont: FONT,
         padding: 10,
@@ -70,16 +91,16 @@ function baseOptions(valueLabel: string, beginAtZero: boolean): ChartOptions<"li
     scales: {
       x: {
         grid: { display: false },
-        border: { color: GRID },
-        ticks: { color: INK_SOFT, font: FONT, maxRotation: 0, autoSkipPadding: 12 },
+        border: { color: palette.grid },
+        ticks: { color: palette.softText, font: FONT, maxRotation: 0, autoSkipPadding: 12 },
       },
       y: {
         type: "linear",
         beginAtZero,
-        grid: { color: GRID },
+        grid: { color: palette.grid },
         border: { display: false },
         ticks: {
-          color: INK_SOFT,
+          color: palette.softText,
           font: FONT,
           maxTicksLimit: 5,
           callback: (value) => compactFans(Number(value)),
@@ -105,11 +126,12 @@ export function LineChart({
   valueLabel: string;
   height?: number;
 }) {
+  const palette = PALETTE[useTheme()];
   if (points.length < 2) return null;
 
   // A month-to-date average never approaches zero, so a zero-based axis would
   // flatten every chart into a straight line.
-  const options = baseOptions(valueLabel, false) as ChartOptions<"line">;
+  const options = baseOptions(valueLabel, false, palette) as ChartOptions<"line">;
 
   return (
     <div style={{ height }}>
@@ -120,14 +142,14 @@ export function LineChart({
           datasets: [
             {
               data: points.map((p) => p.value),
-              borderColor: TEAL,
-              backgroundColor: TEAL_FILL,
+              borderColor: palette.teal,
+              backgroundColor: palette.tealFill,
               borderWidth: 2,
               fill: true,
               tension: 0.25,
               pointRadius: 0,
               pointHoverRadius: 4,
-              pointHoverBackgroundColor: TEAL,
+              pointHoverBackgroundColor: palette.teal,
               pointHoverBorderColor: "white",
               pointHoverBorderWidth: 2,
             },
@@ -155,9 +177,10 @@ export function GainAndAverageChart({
   averages: number[];
   height?: number;
 }) {
+  const palette = PALETTE[useTheme()];
   if (points.length === 0) return null;
 
-  const options = baseOptions("Gained", true) as ChartOptions<"bar">;
+  const options = baseOptions("Gained", true, palette) as ChartOptions<"bar">;
   // Second axis: the average sits an order of magnitude away from a single
   // day's gain, so sharing one scale would flatten the line onto the floor.
   options.scales = {
@@ -169,7 +192,7 @@ export function GainAndAverageChart({
       grid: { display: false },
       border: { display: false },
       ticks: {
-        color: TEAL,
+        color: palette.teal,
         font: FONT,
         maxTicksLimit: 5,
         callback: (value) => compactFans(Number(value)),
@@ -193,8 +216,8 @@ export function GainAndAverageChart({
               type: "bar" as const,
               label: "Gained",
               data: points.map((p) => p.value),
-              backgroundColor: points.map((p) => (p.muted ? CREAM_BAR : TEAL_BAR)),
-              hoverBackgroundColor: TEAL,
+              backgroundColor: points.map((p) => (p.muted ? palette.mutedBar : palette.tealBar)),
+              hoverBackgroundColor: palette.teal,
               borderRadius: 3,
               maxBarThickness: 44,
               order: 2,
@@ -204,7 +227,7 @@ export function GainAndAverageChart({
               type: "line" as const,
               data: averages,
               yAxisID: "avg",
-              borderColor: INK_LINE,
+              borderColor: palette.line,
               borderWidth: 2,
               pointRadius: 0,
               pointHoverRadius: 4,
@@ -228,9 +251,10 @@ export function BarChart({
   valueLabel: string;
   height?: number;
 }) {
+  const palette = PALETTE[useTheme()];
   if (points.length === 0) return null;
 
-  const options = baseOptions(valueLabel, true) as ChartOptions<"bar">;
+  const options = baseOptions(valueLabel, true, palette) as ChartOptions<"bar">;
 
   return (
     <div style={{ height }}>
@@ -241,8 +265,8 @@ export function BarChart({
           datasets: [
             {
               data: points.map((p) => p.value),
-              backgroundColor: points.map((p) => (p.muted ? CREAM_BAR : TEAL_BAR)),
-              hoverBackgroundColor: TEAL,
+              backgroundColor: points.map((p) => (p.muted ? palette.mutedBar : palette.tealBar)),
+              hoverBackgroundColor: palette.teal,
               borderRadius: 3,
               // Caps the width so a six-day month does not render six slabs.
               maxBarThickness: 44,
@@ -307,6 +331,8 @@ export function MemberProgressionChart({
     [],
   );
 
+  const palette = PALETTE[useTheme()];
+
   if (series.length === 0 || days.length < 2) return null;
 
   const allIds = series.map((s) => s.friendViewerId);
@@ -328,7 +354,7 @@ export function MemberProgressionChart({
     onHiddenChange(next);
   }
 
-  const options = baseOptions("Total", true) as ChartOptions<"line">;
+  const options = baseOptions("Total", true, palette) as ChartOptions<"line">;
   // One line at a time. `index` mode lists all thirty datasets at the hovered
   // day, which is unreadable.
   options.interaction = { mode: "nearest", axis: "xy", intersect: false };

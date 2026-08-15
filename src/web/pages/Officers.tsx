@@ -992,7 +992,7 @@ function RosterEditor() {
       <div className="flex flex-wrap items-center gap-3">
         <Ribbon>Proposed roster</Ribbon>
         {status === "final" && (
-          <span className="capsule bg-teal-500 px-2.5 py-0.5 text-xs font-semibold text-cream-50">
+          <span className="capsule bg-teal-500 px-2.5 py-0.5 text-xs font-semibold text-white">
             finalised
           </span>
         )}

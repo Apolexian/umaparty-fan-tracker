@@ -59,7 +59,7 @@ export function DirectionMark({ direction }: { direction: "up" | "down" | "same"
 }
 
 const CLUB_TINTS: Record<number, string> = {
-  1: "bg-teal-500 text-cream-50",
+  1: "bg-teal-500 text-white",
   2: "bg-teal-300 text-teal-900",
   3: "bg-lav-300 text-ink-900",
   4: "bg-lav-200 text-ink-700",
@@ -124,7 +124,7 @@ export function RankBadge({ rank }: { rank: number }) {
 /** Angled banner heading. */
 export function Ribbon({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="ribbon font-display inline-block bg-teal-500 py-1 pl-3 text-lg font-extrabold text-cream-50">
+    <h2 className="ribbon font-display inline-block bg-teal-500 py-1 pl-3 text-lg font-extrabold text-white">
       {children}
     </h2>
   );
@@ -149,7 +149,7 @@ export function Button({
   title?: string;
 }) {
   const tones = {
-    teal: "bg-teal-500 text-cream-50 [--chunky-lip:var(--color-teal-700)]",
+    teal: "bg-teal-500 text-white [--chunky-lip:var(--color-teal-700)]",
     quiet: "bg-cream-200 text-ink-700 [--chunky-lip:var(--color-cream-300)]",
   };
 
