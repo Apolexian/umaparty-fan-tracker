@@ -6,6 +6,7 @@ import {
   daysActiveFor,
   deriveMemberDays,
   firstAccrualDay,
+  isImpossibleDay,
   latestYmd,
   leaderboardForDay,
   mtdAverage,
@@ -226,5 +227,61 @@ describe("ranking", () => {
   it("assigns dense sequential ranks within the club", () => {
     const ranks = board.map((r) => r.rankInClub);
     expect(ranks).toEqual(Array.from({ length: board.length }, (_, i) => i + 1));
+  });
+});
+
+describe("impossible days — chrono's rolling window (D032)", () => {
+  it("knows which days a month cannot have", () => {
+    expect(isImpossibleDay(2026, 9, 31)).toBe(true); // September has 30
+    expect(isImpossibleDay(2026, 9, 30)).toBe(false);
+    expect(isImpossibleDay(2026, 8, 31)).toBe(false); // August has 31
+    expect(isImpossibleDay(2026, 2, 29)).toBe(true); // 2026 is not a leap year
+    expect(isImpossibleDay(2024, 2, 29)).toBe(false); // 2024 is
+    expect(isImpossibleDay(2026, 9, 0)).toBe(true);
+  });
+
+  it("drops last month's tail instead of minting a date that cannot exist", () => {
+    // What club_profile looks like on 1 September: August 31 is still in the
+    // window. Stamped with the current month it becomes 20260931, which then
+    // wins MAX(ymd) and makes the whole site read a month stale.
+    const rows = [
+      {
+        friend_viewer_id: 1,
+        friend_name: "m",
+        actual_date: 31,
+        interpolated_fan_count: 900,
+        adjusted_interpolated_fan_gain: 100,
+        adjusted_fan_gain_cumulative: 900,
+      },
+      {
+        friend_viewer_id: 1,
+        friend_name: "m",
+        actual_date: 1,
+        interpolated_fan_count: 1000,
+        adjusted_interpolated_fan_gain: 100,
+        adjusted_fan_gain_cumulative: 100,
+      },
+    ];
+
+    const out = deriveMemberDays(rows, { year: 2026, month: 9, circleId: 1 });
+
+    expect(out.map((r) => r.ymd)).toEqual([20260901]);
+    expect(out.every((r) => r.ymd !== 20260931)).toBe(true);
+  });
+
+  it("keeps day 31 when the month really has one", () => {
+    const rows = [
+      {
+        friend_viewer_id: 1,
+        friend_name: "m",
+        actual_date: 31,
+        interpolated_fan_count: 900,
+        adjusted_interpolated_fan_gain: 100,
+        adjusted_fan_gain_cumulative: 900,
+      },
+    ];
+
+    const out = deriveMemberDays(rows, { year: 2026, month: 8, circleId: 1 });
+    expect(out.map((r) => r.ymd)).toEqual([20260831]);
   });
 });

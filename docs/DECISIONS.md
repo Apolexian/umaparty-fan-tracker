@@ -549,3 +549,62 @@ about this changes.
 Added members are `source = 'manual'`, so a later fill (D029) never quietly
 evicts someone an officer just placed. Adding to the plan does **not** write
 `member_day`; the daily ingest remains its only writer.
+
+---
+
+## D031 — UmaPark is deactivated until chrono tracks it <a id="d031"></a>
+**2026-09-03 · ACTIVE**
+
+Every ingest call for circle `548045752` (UmaPark) returns
+`403 {"detail":"Error"}`, on both `/club_profile` and `/club_data_by_month`.
+
+**It is not the token.** Checked on 2026-09-03: the other five clubs answer
+`200` on the same key in the same session, and a deliberately nonexistent
+`circle_id` returns exactly the same `403`. On this API a 403 means "no such
+club for this key", so chrono has no record of UmaPark yet — plausibly because
+it is new. Its leader (`702530333287`) appears in none of the five tracked
+clubs, so the club is real; chrono just is not serving it.
+
+- `is_active = 0` drops it from the ingest loop, the projection and the public
+  clubs list, which all filter on that column. The row and its `slot_order`
+  survive, so re-enabling is a one-line update when chrono catches up.
+- Nothing else was affected while it was failing: the ingest already isolates
+  each club, so the other five wrote their ~180 rows a day as normal. The only
+  real cost was two error rows per day in `ingest_runs`.
+- The 403 message used to read "bad token, or a Bearer prefix crept in", which
+  sent us looking at auth for a club-availability problem. It now names both
+  causes.
+
+Re-enable with `UPDATE clubs SET is_active = 1 WHERE circle_id = 548045752;`
+once `/club_profile?circle_id=548045752` returns 200.
+
+---
+
+## D032 — Days the month does not have are dropped at ingest <a id="d032"></a>
+**2026-09-03 · ACTIVE**
+
+`club_profile` covers a rolling window, so for the first days of a month it
+still carries the tail of the previous one. `ingestClubProfile` took the year
+and month from *today* and stamped them onto whatever `actual_date` chrono
+returned, so on 1 September the row for 31 August was written as **20260931** —
+a date September does not have.
+
+That one row poisoned the whole site. "Data as of" and every leaderboard read
+`MAX(ymd) FROM member_day`, and 20260931 sorts above every real September day,
+so the site served a snapshot taken *before the monthly reshuffle*: the date
+read "31 September 2026", and members showed in the clubs they were in during
+August. Chrono itself was correct throughout — two members visibly in
+UmaPaThree there were shown in UmaParty by us.
+
+- `isImpossibleDay(year, month, day)` rejects any day past the real length of
+  that month, leap years included.
+- Both writers skip such rows: the `club_day` loop in `ingestClubProfile`, and
+  the per-member loop in `deriveMemberDays`.
+- Nothing is lost. The genuine 31 August rows are written under 20260831 by the
+  month-rollover pass (`backfillPreviousMonth`), which derives its year and
+  month from the month being read rather than from today.
+- `0006_drop_impossible_days.sql` deletes the rows already stored, in
+  `member_day` and `club_day`.
+
+The bug only fires in the first days of a month, which is exactly when the
+reshuffle makes the club column matter most.

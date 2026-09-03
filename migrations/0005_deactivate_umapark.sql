@@ -1,0 +1,11 @@
+-- Take UmaPark out of the ingest until chrono tracks it.
+--
+-- Every call for circle 548045752 comes back 403. The token is not the
+-- problem: the other five clubs answer 200 on the same key in the same
+-- session, and an unknown circle_id returns exactly this 403, so chrono
+-- simply has no record of this club yet.
+--
+-- `is_active = 0` drops it from the ingest loop and from the reshuffle,
+-- leaving the row and its `slot_order` intact so re-enabling it is a
+-- one-line update once chrono picks it up. (D031)
+UPDATE clubs SET is_active = 0 WHERE circle_id = 548045752;

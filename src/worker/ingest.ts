@@ -12,7 +12,7 @@
 //     is the only surviving copy, so a zero must never overwrite it.
 
 import { ChronoClient, ChronoError, REQUEST_GAP_MS, sleep } from "./chrono.ts";
-import { deriveMemberDays, toYmd, ymdToYearMonth } from "./derive.ts";
+import { deriveMemberDays, isImpossibleDay, toYmd, ymdToYearMonth } from "./derive.ts";
 import type { ClubProfileResponse, Env } from "./types.ts";
 
 export interface ClubRow {
@@ -141,6 +141,9 @@ export async function ingestClubProfile(
   );
 
   for (const day of profile.club_daily_history) {
+    // Last month's tail, still inside chrono's rolling window (D032).
+    if (isImpossibleDay(year, month, day.actual_date)) continue;
+
     statements.push(
       env.DB.prepare(
         `INSERT INTO club_day (circle_id, ymd, rank, rank_gain, fan_count, fan_gain)

@@ -66,7 +66,14 @@ export class ChronoClient {
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new ChronoError(
-        `${path} returned ${res.status}${res.status === 403 ? " (bad token, or a Bearer prefix crept in)" : ""}`,
+        // A 403 is also what an unknown circle_id returns, so it is not
+        // necessarily the token — a club chrono does not track answers the
+        // same way a bad key does.
+        `${path} returned ${res.status}${
+          res.status === 403
+            ? " (club not tracked by chrono, or a bad token / stray Bearer prefix)"
+            : ""
+        }`,
         res.status,
         body.slice(0, 500),
       );

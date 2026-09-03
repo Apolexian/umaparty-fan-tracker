@@ -10,6 +10,24 @@ export function toYmd(year: number, month: number, day: number): number {
   return year * 10000 + month * 100 + day;
 }
 
+/** Days in a month, 1-12. */
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * True when `day` cannot exist in that month.
+ *
+ * `club_profile` covers a rolling window, so for the first days of a month it
+ * still carries the tail of the previous one. Stamping those rows with the
+ * *current* month mints dates like 20260931 — September has 30 days — and
+ * because the site takes its "data as of" from `MAX(ymd)`, one such row makes
+ * the whole site read a month stale. (D032)
+ */
+export function isImpossibleDay(year: number, month: number, day: number): boolean {
+  return day < 1 || day > daysInMonth(year, month);
+}
+
 export function ymdToParts(ymd: number): { year: number; month: number; day: number } {
   return {
     year: Math.floor(ymd / 10000),
@@ -110,6 +128,11 @@ export function deriveMemberDays(
     let prevAvg: number | null = null;
 
     for (const row of rows) {
+      // A day the month does not have belongs to the previous one, still in
+      // chrono's rolling window. Dropping it here keeps the impossible date
+      // out of member_day, and with it out of MAX(ymd). (D032)
+      if (isImpossibleDay(opts.year, opts.month, row.actual_date)) continue;
+
       // Days before the stint began carry no meaningful average.
       if (row.actual_date < start) continue;
 
