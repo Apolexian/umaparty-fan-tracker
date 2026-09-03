@@ -138,6 +138,37 @@ export function projectPromotion(
   clubs: PromotionClub[],
   pins: Pin[] = [],
 ): PromotionResult {
+  return place(candidates, clubs, pins);
+}
+
+/**
+ * Re-deal the unlocked members, leaving the locked ones exactly where they are
+ * (D029).
+ *
+ * This is what the officers' "fill clubs" button runs: hand placements stand,
+ * everyone else is dealt back out by rank until each club is at capacity. It is
+ * the same placement as `projectPromotion` with a wider locked set, so a club
+ * an officer has knowingly overfilled (D025) comes back to capacity by shedding
+ * its lowest-ranked *unlocked* members, and pressing it again after further
+ * edits repeats the same action.
+ */
+export function fillClubs(
+  candidates: PromotionCandidate[],
+  clubs: PromotionClub[],
+  locked: Pin[] = [],
+): PromotionResult {
+  return place(candidates, clubs, locked);
+}
+
+/**
+ * The one placement pass both entry points share: seat the held members, then
+ * deal everyone else by rank.
+ */
+function place(
+  candidates: PromotionCandidate[],
+  clubs: PromotionClub[],
+  pins: Pin[],
+): PromotionResult {
   const pooled = clubs.filter((c) => c.inPool !== false);
   const ordered = [...pooled].sort((a, b) => a.slotOrder - b.slotOrder);
   const pooledIds = new Set(ordered.map((c) => c.circleId));

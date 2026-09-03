@@ -489,3 +489,63 @@ officer got round to recording it.
 The known cost is that chrono's leader field lags a real in-game handover by up
 to a day, so for that day the projection holds the previous lead. That is
 strictly better than holding nobody, which is what it did before.
+
+---
+
+## D029 — "Fill clubs" re-deals the unlocked; hand placements are locked <a id="d029"></a>
+**2026-09-03 · ACTIVE**
+
+Officers wanted a button that takes the manual moves they have already made and
+fills the remaining seats to capacity by rank. `fillClubs()` is that button.
+
+- **Locked** = anyone an officer has dragged this month
+  (`roster_plan_entries.source = 'manual'`) **plus** the standing pins from
+  D021/D027. Everyone else is re-dealt by `mtd_avg`.
+- A hand placement beats a pin. Moving someone this month is a deliberate
+  override of where their pin would otherwise put them.
+- Locked members are seated first and stop at capacity, so a club an officer
+  has knowingly overfilled (D025) comes back to capacity by spilling its
+  lowest-ranked *unlocked* members into the next club down. That is the
+  intended way to undo an overfill.
+- **Idempotent**: pressing it twice changes nothing, so it is safe to press
+  after each round of edits.
+- Distinct from *Redo projection* (D022), which discards every hand edit and
+  reseeds. Fill preserves them. Both exist because they answer different
+  questions — "keep my decisions and tidy the rest" versus "start over".
+
+It shares one placement pass with `projectPromotion`, so capacity, cascade,
+thresholds and bubbles cannot drift between the two.
+
+A member added by hand (D030) has no `member_day` row yet, so they enter the
+fill with `mtdAvg = 0` and sort last. An unplaced one is anchored to the first
+pooled club for the purposes of the run — a club id of `0` would read as
+out-of-pool and strand them unplaced permanently.
+
+---
+
+## D030 — Members are added by trainer ID, resolved from ingested data <a id="d030"></a>
+**2026-09-03 · ACTIVE**
+
+Officers can add someone to the plan by trainer ID, for a member who has joined
+but whom the ingest has not picked up yet.
+
+**Chronogenesis has no working per-member lookup.** `GET /profile?friend_viewer_id=`
+is in the public spec and looks like exactly the right call, but it answers
+`422 {"detail":"Error"}` for every id — a real live one, a nonexistent one, and
+every variation tried — while the same token gets `200` from `club_profile` in
+the same session. `GET /friend_search` answers `500`. Verified 2026-09-03
+against a real id taken from a live `club_profile` response. So this is not
+auth, and not our request shape.
+
+Resolution therefore goes:
+
+1. `members` table — anyone the ingest has ever seen, including ex-members.
+2. Otherwise the officer types the name, and the member is added with no
+   average until the next ingest picks them up.
+
+If `/profile` is ever fixed, step 2 gains a network fallback and nothing else
+about this changes.
+
+Added members are `source = 'manual'`, so a later fill (D029) never quietly
+evicts someone an officer just placed. Adding to the plan does **not** write
+`member_day`; the daily ingest remains its only writer.

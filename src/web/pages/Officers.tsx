@@ -10,7 +10,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Check, Copy, LogOut, RefreshCw, RotateCcw, Undo2 } from "lucide-react";
+import { Check, Copy, LogOut, Plus, RefreshCw, RotateCcw, Undo2, Users } from "lucide-react";
 
 import { compactFans } from "../lib/format.ts";
 import { Button, ClubChip, ErrorNote, Ribbon, Spinner } from "../components/Bits.tsx";
@@ -874,6 +874,7 @@ function RosterEditor() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<RosterEntry | null>(null);
+  const [filled, setFilled] = useState<number | null>(null);
 
   const reload = useCallback(() => {
     api<{
@@ -1000,8 +1001,36 @@ function RosterEditor() {
           {changed > 0 ? `${changed} moved by hand` : "straight from the projection"}
         </span>
         {saving && <span className="text-xs text-teal-700">saving…</span>}
+        {filled !== null && !saving && (
+          <span className="text-xs text-ink-400">
+            {filled === 0 ? "already full" : `filled ${filled}`}
+          </span>
+        )}
 
         <div className="ml-auto flex gap-2">
+          <Button
+            tone="quiet"
+            title="Fill every club to capacity by rank, keeping hand-placed members where they are"
+            onClick={async () => {
+              setSaving(true);
+              try {
+                const r = await api<{ moved: number }>("roster", {
+                  method: "POST",
+                  body: JSON.stringify({ action: "fill" }),
+                });
+                setFilled(r.moved);
+                reload();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setSaving(false);
+              }
+            }}
+          >
+            <span className="flex items-center gap-1.5">
+              <Users size={13} /> Fill clubs
+            </span>
+          </Button>
           <Button
             tone="quiet"
             title="Rebuild the plan from today's numbers, discarding every hand edit"
@@ -1083,7 +1112,107 @@ function RosterEditor() {
             inside its own scrolling column. */}
         <DragOverlay>{dragging ? <MemberChip entry={dragging} /> : null}</DragOverlay>
       </DndContext>
+
+      <AddMember clubs={clubs} onAdded={reload} />
     </section>
+  );
+}
+
+/**
+ * Add someone to the plan by trainer ID.
+ *
+ * Chrono has no working per-member lookup, so the name comes from what the
+ * ingest has already stored and is typed by hand when that misses (D030). They
+ * land unplaced, with no average until the next ingest picks them up.
+ */
+function AddMember({ clubs, onAdded }: { clubs: RosterClub[]; onAdded: () => void }) {
+  const [uid, setUid] = useState("");
+  const [name, setName] = useState("");
+  const [circleId, setCircleId] = useState<string>("");
+  const [needsName, setNeedsName] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [added, setAdded] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ name: string }>("roster", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "add",
+          friendViewerId: Number(uid),
+          name: name.trim() || undefined,
+          circleId: circleId === "" ? null : Number(circleId),
+        }),
+      });
+      setAdded(r.name);
+      setTimeout(() => setAdded(null), 2500);
+      setUid("");
+      setName("");
+      setNeedsName(false);
+      onAdded();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // The id is not one the ingest has seen — take a name and retry.
+      if (message.includes("a name is required")) {
+        setNeedsName(true);
+        setError("Not in our data — type their name to add them anyway.");
+      } else {
+        setError(message);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+      <input
+        value={uid}
+        onChange={(e) => {
+          setUid(e.target.value.replace(/\D/g, ""));
+          setNeedsName(false);
+        }}
+        inputMode="numeric"
+        placeholder="Trainer ID"
+        className="card tnum w-40 bg-cream-50 px-3 py-1.5 text-sm outline-none focus:border-teal-400"
+      />
+
+      {needsName && (
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name"
+          autoFocus
+          className="card w-44 bg-cream-50 px-3 py-1.5 text-sm outline-none focus:border-teal-400"
+        />
+      )}
+
+      <select
+        value={circleId}
+        onChange={(e) => setCircleId(e.target.value)}
+        className="card bg-cream-50 px-3 py-1.5 text-sm outline-none focus:border-teal-400"
+      >
+        <option value="">Unplaced</option>
+        {clubs.map((club) => (
+          <option key={club.circle_id} value={club.circle_id}>
+            {club.name}
+          </option>
+        ))}
+      </select>
+
+      <Button type="submit" tone="quiet" disabled={busy || uid === ""}>
+        <span className="flex items-center gap-1.5">
+          <Plus size={13} /> Add member
+        </span>
+      </Button>
+
+      {added && <span className="text-xs text-teal-700">added {added}</span>}
+      {error && <span className="text-xs text-coral-700">{error}</span>}
+    </form>
   );
 }
 
@@ -1181,10 +1310,37 @@ function MemberChip({ entry, offPlan = false }: { entry: RosterEntry; offPlan?: 
             : undefined
       }
     >
-      <span className="min-w-0 flex-1 truncate font-semibold text-ink-900">{entry.name}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-semibold text-ink-900">{entry.name}</span>
+        <UidTag id={entry.friend_viewer_id} />
+      </span>
       <span className="tnum text-xs text-ink-500">
         {entry.mtd_avg ? compactFans(entry.mtd_avg) : "—"}
       </span>
     </span>
+  );
+}
+
+/** The in-game trainer id, so officers can find someone to move them. */
+function UidTag({ id }: { id: number }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <button
+      type="button"
+      title="Copy trainer ID"
+      // The card itself is a drag handle; without this the click starts a drag.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(String(id));
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      className="tnum flex items-center gap-1 text-[11px] text-ink-400 hover:text-ink-700"
+    >
+      {id}
+      {copied ? <Check size={9} /> : <Copy size={9} className="opacity-0 group-hover:opacity-60" />}
+    </button>
   );
 }

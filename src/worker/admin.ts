@@ -13,7 +13,14 @@ import {
   type Officer,
 } from "./auth.ts";
 import { ingestAll, latestDataYmd, recomputeOverallRanks } from "./ingest.ts";
-import { buildPins, projectPromotion, type PromotionClub } from "./promotion.ts";
+import {
+  buildPins,
+  fillClubs,
+  projectPromotion,
+  type Pin,
+  type PromotionCandidate,
+  type PromotionClub,
+} from "./promotion.ts";
 import type { Env } from "./types.ts";
 
 export async function handleAdmin(request: Request, env: Env): Promise<Response> {
@@ -339,7 +346,20 @@ async function roster(request: Request, env: Env, officer: Officer, url: URL): P
 
   // Reset back to the algorithm's proposal, or finalise the plan.
   if (request.method === "POST") {
-    const body = await readJson<{ action?: string }>(request);
+    const body = await readJson<{
+      action?: string;
+      friendViewerId?: number;
+      name?: string;
+      circleId?: number | null;
+    }>(request);
+
+    if (body?.action === "fill") {
+      return await fillPlan(env, officer, yearMonth);
+    }
+
+    if (body?.action === "add") {
+      return await addPlanMember(env, officer, yearMonth, body);
+    }
 
     if (body?.action === "reset") {
       await env.DB.prepare("DELETE FROM roster_plans WHERE year_month = ?").bind(yearMonth).run();
@@ -367,11 +387,188 @@ async function roster(request: Request, env: Env, officer: Officer, url: URL): P
   return json({ error: "method not allowed" }, 405);
 }
 
-async function seedPlan(
+/**
+ * Fill every club to capacity by rank, leaving hand placements alone (D029).
+ *
+ * Locked = members an officer has dragged (`source = 'manual'`) plus the
+ * standing pins, so a fill respects both the one-off overrides of D022 and the
+ * standing rules of D021. Everyone else is re-dealt, which is what pulls an
+ * overfilled club back down to capacity.
+ *
+ * Only the rows that actually change are written, so `moved_at` keeps meaning
+ * "when a human last touched this" and a fill that moves nobody is a no-op.
+ */
+async function fillPlan(env: Env, officer: Officer, yearMonth: number): Promise<Response> {
+  const plan = await env.DB.prepare("SELECT id, status FROM roster_plans WHERE year_month = ?")
+    .bind(yearMonth)
+    .first<{ id: number; status: string }>();
+  if (!plan) return json({ error: "no plan for this month" }, 404);
+
+  const { results: entries } = await env.DB.prepare(
+    "SELECT friend_viewer_id, circle_id, source FROM roster_plan_entries WHERE plan_id = ?",
+  )
+    .bind(plan.id)
+    .all<{ friend_viewer_id: number; circle_id: number | null; source: string }>();
+
+  const { candidates, clubs, pins } = await loadPlacementInputs(env);
+
+  // A member added by hand has no `member_day` row yet, so they are missing
+  // from `candidates` — carry them in with no average so they sort last.
+  const known = new Set(candidates.map((c) => c.friendViewerId));
+  const extra = entries.filter((e) => !known.has(e.friend_viewer_id));
+  if (extra.length > 0) {
+    const names = new Map(
+      (
+        await env.DB.prepare(
+          `SELECT friend_viewer_id, name FROM members
+            WHERE friend_viewer_id IN (${extra.map(() => "?").join(",")})`,
+        )
+          .bind(...extra.map((e) => e.friend_viewer_id))
+          .all<{ friend_viewer_id: number; name: string }>()
+      ).results.map((r) => [r.friend_viewer_id, r.name] as const),
+    );
+
+    // An unplaced member has no club to call "current". Anchoring them to the
+    // first pooled club keeps them inside the pool so the fill deals them a
+    // seat; a club id of 0 would read as out-of-pool and leave them unplaced
+    // for good.
+    const fallbackCircleId = clubs.find((c) => c.inPool !== false)?.circleId ?? 0;
+
+    for (const entry of extra) {
+      candidates.push({
+        friendViewerId: entry.friend_viewer_id,
+        name: names.get(entry.friend_viewer_id) ?? String(entry.friend_viewer_id),
+        currentCircleId: entry.circle_id ?? fallbackCircleId,
+        mtdAvg: 0,
+      });
+    }
+  }
+
+  // Hand placements outrank the standing pins: an officer moving someone this
+  // month is a deliberate override of where a pin would put them.
+  const locked: Pin[] = pins.filter((pin) =>
+    entries.every((e) => e.friend_viewer_id !== pin.friendViewerId || e.source !== "manual"),
+  );
+  for (const entry of entries) {
+    if (entry.source === "manual" && entry.circle_id !== null) {
+      locked.push({
+        friendViewerId: entry.friend_viewer_id,
+        circleId: entry.circle_id,
+        kind: "manual",
+      });
+    }
+  }
+
+  const result = fillClubs(candidates, clubs, locked);
+
+  const was = new Map(entries.map((e) => [e.friend_viewer_id, e.circle_id]));
+  const positions = new Map<number, number>();
+  const writes = [];
+
+  for (const placement of result.placements) {
+    const key = placement.projectedCircleId ?? 0;
+    const position = (positions.get(key) ?? 0) + 1;
+    positions.set(key, position);
+
+    if (!was.has(placement.friendViewerId)) continue;
+    if (was.get(placement.friendViewerId) === placement.projectedCircleId) continue;
+
+    writes.push(
+      env.DB.prepare(
+        `UPDATE roster_plan_entries SET circle_id = ?, position = ?
+          WHERE plan_id = ? AND friend_viewer_id = ?`,
+      ).bind(placement.projectedCircleId, position, plan.id, placement.friendViewerId),
+    );
+  }
+
+  if (writes.length > 0) await env.DB.batch(writes);
+
+  await audit(env, officer.id, "roster.fill", { planId: plan.id, moved: writes.length });
+  return json({ ok: true, moved: writes.length });
+}
+
+/**
+ * Add someone to the plan by viewer id.
+ *
+ * Chrono has no working per-member lookup — `GET /profile` answers 422 for
+ * every id, valid or not, and `/friend_search` 500s — so a name is resolved
+ * from what the ingest has already stored, and the officer types one when even
+ * that comes up empty (D030).
+ *
+ * The new entry is `manual`, so a later fill will not quietly evict someone an
+ * officer just added.
+ */
+async function addPlanMember(
   env: Env,
   officer: Officer,
   yearMonth: number,
-): Promise<{ id: number; status: string; note: string | null }> {
+  body: { friendViewerId?: number; name?: string; circleId?: number | null },
+): Promise<Response> {
+  const friendViewerId = Number(body.friendViewerId);
+  if (!Number.isSafeInteger(friendViewerId) || friendViewerId <= 0) {
+    return json({ error: "a numeric friendViewerId is required" }, 400);
+  }
+
+  const plan = await env.DB.prepare("SELECT id FROM roster_plans WHERE year_month = ?")
+    .bind(yearMonth)
+    .first<{ id: number }>();
+  if (!plan) return json({ error: "no plan for this month" }, 404);
+
+  const already = await env.DB.prepare(
+    "SELECT 1 AS hit FROM roster_plan_entries WHERE plan_id = ? AND friend_viewer_id = ?",
+  )
+    .bind(plan.id, friendViewerId)
+    .first<{ hit: number }>();
+  if (already) return json({ error: "already in the plan" }, 409);
+
+  const known = await env.DB.prepare("SELECT name FROM members WHERE friend_viewer_id = ?")
+    .bind(friendViewerId)
+    .first<{ name: string }>();
+
+  const name = known?.name ?? body.name?.trim();
+  if (!name) return json({ error: "unknown id — a name is required", needsName: true }, 404);
+
+  const now = new Date().toISOString();
+
+  // Members the ingest has never seen need a row of their own, or the plan
+  // would join to nothing and show a blank name.
+  if (!known) {
+    await env.DB.prepare(
+      "INSERT OR IGNORE INTO members (friend_viewer_id, name, updated_at) VALUES (?, ?, ?)",
+    )
+      .bind(friendViewerId, name, now)
+      .run();
+  }
+
+  const circleId = body.circleId ?? null;
+  const next = await env.DB.prepare(
+    "SELECT COALESCE(MAX(position), 0) + 1 AS pos FROM roster_plan_entries WHERE plan_id = ? AND circle_id IS ?",
+  )
+    .bind(plan.id, circleId)
+    .first<{ pos: number }>();
+
+  await env.DB.prepare(
+    `INSERT INTO roster_plan_entries
+       (plan_id, friend_viewer_id, circle_id, position, source, projected_circle_id, moved_by, moved_at)
+     VALUES (?, ?, ?, ?, 'manual', NULL, ?, ?)`,
+  )
+    .bind(plan.id, friendViewerId, circleId, next?.pos ?? 1, officer.id, now)
+    .run();
+
+  await audit(env, officer.id, "roster.add", { planId: plan.id, friendViewerId, name });
+  return json({ ok: true, friendViewerId, name });
+}
+
+/**
+ * Everything a placement run needs: today's members, the clubs, and the pins.
+ * Shared by the initial seed and by "fill clubs", so the two can never drift
+ * apart on which members or capacities they see.
+ */
+async function loadPlacementInputs(env: Env): Promise<{
+  candidates: PromotionCandidate[];
+  clubs: PromotionClub[];
+  pins: Pin[];
+}> {
   const ymd = (
     await env.DB.prepare("SELECT MAX(ymd) AS ymd FROM member_day").first<{ ymd: number }>()
   )?.ymd;
@@ -401,29 +598,34 @@ async function seedPlan(
     "SELECT friend_viewer_id, circle_id FROM member_pins WHERE kind = 'manual' AND unset_at IS NULL",
   ).all<{ friend_viewer_id: number; circle_id: number }>();
 
-  const clubs: PromotionClub[] = clubRows.map((c) => ({
-    circleId: c.circle_id,
-    name: c.name,
-    slotOrder: c.slot_order,
-    capacity: c.capacity,
-    inPool: c.in_pool === 1,
-  }));
-
-  const pins = buildPins(
-    clubRows.map((c) => ({ circleId: c.circle_id, leaderViewerId: c.leader_viewer_id_api })),
-    pinRows.map((p) => ({ friendViewerId: p.friend_viewer_id, circleId: p.circle_id })),
-  );
-
-  const projection = projectPromotion(
-    memberRows.map((r) => ({
+  return {
+    candidates: memberRows.map((r) => ({
       friendViewerId: r.friend_viewer_id,
       name: r.name,
       currentCircleId: r.circle_id,
       mtdAvg: r.mtd_avg,
     })),
-    clubs,
-    pins,
-  );
+    clubs: clubRows.map((c) => ({
+      circleId: c.circle_id,
+      name: c.name,
+      slotOrder: c.slot_order,
+      capacity: c.capacity,
+      inPool: c.in_pool === 1,
+    })),
+    pins: buildPins(
+      clubRows.map((c) => ({ circleId: c.circle_id, leaderViewerId: c.leader_viewer_id_api })),
+      pinRows.map((p) => ({ friendViewerId: p.friend_viewer_id, circleId: p.circle_id })),
+    ),
+  };
+}
+
+async function seedPlan(
+  env: Env,
+  officer: Officer,
+  yearMonth: number,
+): Promise<{ id: number; status: string; note: string | null }> {
+  const { candidates, clubs, pins } = await loadPlacementInputs(env);
+  const projection = projectPromotion(candidates, clubs, pins);
 
   const created = await env.DB.prepare(
     "INSERT INTO roster_plans (year_month, status, created_by, created_at) VALUES (?, 'draft', ?, ?)",

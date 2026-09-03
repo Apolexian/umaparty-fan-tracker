@@ -6,6 +6,7 @@ import { CLUBS } from "../src/worker/chrono.ts";
 import { deriveMemberDays, latestYmd, leaderboardForDay } from "../src/worker/derive.ts";
 import {
   buildPins,
+  fillClubs,
   CLUB_CAPACITY,
   projectPromotion,
   type PromotionCandidate,
@@ -432,5 +433,95 @@ describe("buildPins — chrono owns who leads (D027)", () => {
     expect(lead?.projectedCircleId).toBe(1);
     expect(lead?.pinnedAs).toBe("leader");
     expect(placements.find((p) => p.friendViewerId === 2)?.projectedCircleId).toBe(2);
+  });
+});
+
+describe("fillClubs — officers' fill button (D029)", () => {
+  const UMAPA3 = CLUBS[2].circleId;
+
+  /** Where a fill puts everyone, keyed by member. */
+  function placementMap(result: ReturnType<typeof fillClubs>) {
+    return new Map(result.placements.map((p) => [p.friendViewerId, p.projectedCircleId]));
+  }
+
+  it("fills every club to capacity", () => {
+    const result = fillClubs(candidates, clubs);
+    // 147 members, five 30-slot clubs: 30/30/30/30/27.
+    expect(result.clubs.map((c) => c.members.length)).toEqual([30, 30, 30, 30, 27]);
+  });
+
+  it("leaves locked members exactly where they are", () => {
+    // Someone ranked well down the list, held in the top club by hand.
+    const low = [...candidates].sort((a, b) => a.mtdAvg - b.mtdAvg)[0]!;
+    const locked: Pin[] = [
+      { friendViewerId: low.friendViewerId, circleId: UMAPARTY, kind: "manual" },
+    ];
+
+    const result = fillClubs(candidates, clubs, locked);
+
+    expect(placementMap(result).get(low.friendViewerId)).toBe(UMAPARTY);
+    expect(result.clubs[0]!.members).toHaveLength(CLUB_CAPACITY);
+  });
+
+  it("displaces the member a locked seat cost, who cascades down", () => {
+    const open = fillClubs(candidates, clubs);
+    const topClub = open.clubs.find((c) => c.circleId === UMAPARTY)!;
+    // The last member who earned a top-club place loses it to the pin.
+    const marginal = topClub.members[topClub.members.length - 1]!;
+
+    const low = [...candidates].sort((a, b) => a.mtdAvg - b.mtdAvg)[0]!;
+    const result = fillClubs(candidates, clubs, [
+      { friendViewerId: low.friendViewerId, circleId: UMAPARTY, kind: "manual" },
+    ]);
+
+    const after = placementMap(result).get(marginal.friendViewerId);
+    expect(after).not.toBe(UMAPARTY);
+    expect(after).toBe(TWOMA);
+  });
+
+  it("brings an overfilled club back to capacity, shedding the lowest ranked", () => {
+    // Officers may knowingly overfill (D025); a fill is how they undo it.
+    const top = [...candidates].sort((a, b) => b.mtdAvg - a.mtdAvg);
+    const overfill: Pin[] = top
+      .slice(0, CLUB_CAPACITY + 5)
+      .map((c) => ({ friendViewerId: c.friendViewerId, circleId: UMAPARTY, kind: "manual" }));
+
+    // Locked members are seated first and stop at capacity, so the excess five
+    // fall through to the next club rather than the club staying over.
+    const result = fillClubs(candidates, clubs, overfill);
+    expect(result.clubs[0]!.members).toHaveLength(CLUB_CAPACITY);
+
+    const placed = placementMap(result);
+    for (const spilled of top.slice(CLUB_CAPACITY, CLUB_CAPACITY + 5)) {
+      expect(placed.get(spilled.friendViewerId)).not.toBe(UMAPARTY);
+    }
+  });
+
+  it("is idempotent — pressing it twice changes nothing", () => {
+    const locked: Pin[] = [
+      { friendViewerId: candidates[0]!.friendViewerId, circleId: UMAPA3, kind: "manual" },
+    ];
+
+    const once = fillClubs(candidates, clubs, locked);
+    const twice = fillClubs(candidates, clubs, locked);
+
+    expect(placementMap(twice)).toEqual(placementMap(once));
+  });
+
+  it("sorts a member with no data yet to the bottom", () => {
+    // Someone added by hand has no member_day row, so they arrive with 0.
+    const newcomer: PromotionCandidate = {
+      friendViewerId: 999999999999,
+      name: "just added",
+      currentCircleId: UMAPARTY,
+      mtdAvg: 0,
+    };
+
+    const result = fillClubs([...candidates, newcomer], clubs);
+    const placed = result.placements.find((p) => p.friendViewerId === newcomer.friendViewerId)!;
+
+    expect(placed.rankOverall).toBe(candidates.length + 1);
+    // 148 members, so the last club is the only one with room left.
+    expect(placed.projectedCircleId).toBe(CLUBS[4].circleId);
   });
 });
