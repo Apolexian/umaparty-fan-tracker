@@ -14,13 +14,14 @@ const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
-/** The five clubs, in promotion order. Mirrors the `clubs.slot_order` seed. */
+/** The six clubs, in promotion order. Mirrors the `clubs.slot_order` seed. */
 export const CLUBS = [
   { circleId: 665160774, name: "UmaParty", slotOrder: 1 },
   { circleId: 720848953, name: "TwomaParty", slotOrder: 2 },
   { circleId: 928261417, name: "UmaPaThree", slotOrder: 3 },
   { circleId: 877539742, name: "カック・サドル", slotOrder: 4 },
   { circleId: 201002484, name: "UmaFourty", slotOrder: 5 },
+  { circleId: 548045752, name: "UmaPark", slotOrder: 5 },
 ] as const;
 
 /** Chrono asks for no more than one request per second; leave headroom. */
