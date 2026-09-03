@@ -11,3 +11,4 @@ dist/
 *.log
 .vite/
 .tmp/
+.vs

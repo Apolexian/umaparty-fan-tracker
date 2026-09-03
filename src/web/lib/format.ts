@@ -30,7 +30,7 @@ export function todayDayMonth(): string {
     "July", "August", "September", "October", "November", "December",
   ];
   const now = new Date();
-  return `${now.getDate()} ${months[now.getMonth()]}`;
+  return `${now.getUTCDate()} ${months[now.getUTCMonth()]}`;
 }
 
 /** 20260806 -> "6 Aug" */
