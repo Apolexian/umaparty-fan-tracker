@@ -552,8 +552,8 @@ evicts someone an officer just placed. Adding to the plan does **not** write
 
 ---
 
-## D031 — UmaPark is deactivated until chrono tracks it <a id="d031"></a>
-**2026-09-03 · ACTIVE**
+## D031 — UmaPark was deactivated while chrono 403'd it <a id="d031"></a>
+**2026-09-03 · RESOLVED same day — chrono added the club to our token**
 
 Every ingest call for circle `548045752` (UmaPark) returns
 `403 {"detail":"Error"}`, on both `/club_profile` and `/club_data_by_month`.
@@ -575,8 +575,17 @@ clubs, so the club is real; chrono just is not serving it.
   sent us looking at auth for a club-availability problem. It now names both
   causes.
 
-Re-enable with `UPDATE clubs SET is_active = 1 WHERE circle_id = 548045752;`
-once `/club_profile?circle_id=548045752` returns 200.
+**Resolved the same day.** Chrono added circle `548045752` to our token, and
+both `/club_profile` and `/club_data_by_month` now return 200. `0007` re-enables
+the club and corrects its lead, which chrono reports as `903460475258` rather
+than the `702530333287` seeded in `0004`.
+
+`0005` is deliberately left in the migration list rather than edited or
+reverted: it had already been pushed, and rewriting an applied migration
+desyncs any database that ran it. The pair reads as a record of what happened.
+
+The lasting change is the 403 message, which no longer blames the token for
+what turned out to be a club-availability problem.
 
 ---
 
