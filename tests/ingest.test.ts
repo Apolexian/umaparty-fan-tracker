@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { startYmdFor, ymdOf } from "../src/worker/ingest.ts";
+import { payloadMonth, startYmdFor, ymdOf } from "../src/worker/ingest.ts";
 
 describe("ymdOf", () => {
   it("uses UTC, since chrono's data day is UTC-based", () => {
@@ -42,5 +42,37 @@ describe("startYmdFor", () => {
   it("treats join_time as UTC", () => {
     // chrono returns naive timestamps; they are read as UTC, not local.
     expect(startYmdFor("2026-08-02T23:59:00", 20260807)).toBe(20260802);
+  });
+});
+
+describe("payloadMonth — which month the payload covers (D033)", () => {
+  it("takes the month from chrono, not from the clock", () => {
+    // The 10:15 run on 1 September: chrono has rolled its month_filter over,
+    // so the payload is September's even though it is nearly empty.
+    const profile = { month_filter: [{ sdate: "2026-09-01" }, { sdate: "2026-08-01" }] };
+
+    expect(payloadMonth(profile, new Date("2026-09-01T10:15:00Z"))).toEqual({
+      year: 2026,
+      month: 9,
+    });
+  });
+
+  it("keeps last month when chrono has not rolled over yet", () => {
+    // The case that duplicated August into September: it is the 1st by the
+    // clock, but chrono is still serving August. Dating this by `now` rewrote
+    // the whole month one month forward.
+    const profile = { month_filter: [{ sdate: "2026-08-01" }, { sdate: "2026-07-01" }] };
+
+    expect(payloadMonth(profile, new Date("2026-09-01T10:15:00Z"))).toEqual({
+      year: 2026,
+      month: 8,
+    });
+  });
+
+  it("falls back to the clock when month_filter is missing", () => {
+    expect(payloadMonth({}, new Date("2026-09-04T10:15:00Z"))).toEqual({
+      year: 2026,
+      month: 9,
+    });
   });
 });

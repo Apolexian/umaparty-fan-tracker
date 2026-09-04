@@ -617,3 +617,37 @@ UmaPaThree there were shown in UmaParty by us.
 
 The bug only fires in the first days of a month, which is exactly when the
 reshuffle makes the club column matter most.
+
+---
+
+## D033 — A payload's month comes from chrono, not from our clock <a id="d033"></a>
+**2026-09-04 · ACTIVE**
+
+`ingestClubProfile` dated rows by `now`, stamping today's year and month onto
+whatever `club_profile` returned. On the 1st that is wrong.
+
+Chrono lands the member tables at 10 UTC but the club tables not until 15 UTC,
+so the 10:15 run on 1 September still saw **August's** member history — and
+wrote all of it again as September. The 10:15 runs wrote 1,026-1,095 rows per
+club where a daily run writes ~180.
+
+The result was a phantom 4-30 September, byte-identical to August: viewer
+700494191843 held 1,830,883,003 fans on both 20260830 and 20260930. Because the
+site takes its day from `MAX(ymd)`, it served that phantom month — the header
+read a September date and members appeared in their pre-reshuffle clubs.
+
+- `payloadMonth()` reads `month_filter[0].sdate`, which is chrono's own
+  statement of the month a payload covers (newest first, verified). The clock
+  is used only if `month_filter` is absent.
+- Observation dates keep using `now`: `first_seen_ymd`, `last_seen_ymd`,
+  `member_names.first_seen_ymd` and the stint diff all mean "when did we see
+  this", which is a different question from "what month is this data".
+- `0008` deletes the phantom rows. Verified first: every day from the 4th to
+  the 30th matched the same member's August `fan_count` exactly, and the four
+  rows without an August twin were mid-August joiners carrying `mtd_avg = 0`.
+  The 1st-3rd are genuine and were left alone — their row counts vary
+  (167/179/133) the way real ingest days do.
+
+D032 was the same incident seen through a narrower lens: it caught only the
+31st, which stood out by being a date September does not have. The days that
+exist in both months needed this fix.

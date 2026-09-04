@@ -98,6 +98,31 @@ export async function ingestAll(env: Env, now = new Date()): Promise<IngestSumma
   return summaries;
 }
 
+/**
+ * Which month a `club_profile` payload is actually for.
+ *
+ * Chrono states this itself in `month_filter`, newest first. Taking it from
+ * today's date instead is what produced a duplicate September: on the 1st the
+ * member tables land at 10 UTC but the club tables not until 15 UTC, so the
+ * 10:15 run still sees the previous month's member history. Stamped with
+ * today's month, all of August was written again as September — ~1,050 rows a
+ * club where a daily run writes ~180. (D033)
+ *
+ * Falls back to the clock only when `month_filter` is missing.
+ */
+export function payloadMonth(
+  profile: { month_filter?: { sdate: string }[] },
+  now: Date,
+): { year: number; month: number } {
+  const sdate = profile.month_filter?.[0]?.sdate;
+  if (sdate) {
+    return { year: Number(sdate.slice(0, 4)), month: Number(sdate.slice(5, 7)) };
+  }
+
+  const ymd = ymdOf(now);
+  return { year: Math.floor(ymd / 10000), month: Math.floor(ymd / 100) % 100 };
+}
+
 /** Normalise and persist one club's profile response. */
 export async function ingestClubProfile(
   env: Env,
@@ -108,9 +133,11 @@ export async function ingestClubProfile(
   const club = profile.club[0];
   if (!club) throw new Error(`club_profile for ${circleId} contained no club row`);
 
+  // Two different clocks, deliberately. `ymd` is when we observed this — it
+  // dates sightings and stints. `year`/`month` is which month the payload
+  // covers, which on the 1st is not today's month (D033).
   const ymd = ymdOf(now);
-  const year = Math.floor(ymd / 10000);
-  const month = Math.floor(ymd / 100) % 100;
+  const { year, month } = payloadMonth(profile, now);
   const statements: D1PreparedStatement[] = [];
 
   // ---------------------------------------------------------------- club ----
