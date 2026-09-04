@@ -689,6 +689,22 @@ days keep the old `circle_id` and nothing revisits them, so カック・サド�
   stint covers — must also exclude members whose stint *ended*, or the four who
   left come straight back and the club reads 33 again.
 
+`0012` then prunes what the reconstruction over-produced. Two kinds of row:
+
+- Days a member's stint spans but we hold no `member_day` row for. Arm one of
+  `0011` expanded every stint across its whole span, so a stint running 3 August
+  to 2 September created a roster row for each of those days whether or not the
+  ingest ran. Invisible on the leaderboard, which joins `member_day`, but
+  `tracked_members` counts `club_roster` directly and read **32** for UmaPaThree
+  on 1 September.
+- A handful of early days still at 31 afterwards. Those predate all of this: the
+  7 August fixture has `circle_user_array` at 28 for カック・サドル while
+  `club_friend_history` carries 31, the extra three being members who had
+  already left. An early ingest wrote `member_day` rows for all 31. Chrono's
+  roster for those days is long gone, so the only recoverable definition is by
+  rank — keep `capacity` members by `mtd_avg`, the same order the leaderboard
+  shows, and drop the overflow.
+
 The general lesson, and the reason this had to be fixed twice: **when chrono
 states a fact, store the fact.** Deriving it and then correcting the derivation
 in SQL is how we got a phantom month (D033) and a 33-member club from the same
