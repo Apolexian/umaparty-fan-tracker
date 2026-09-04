@@ -16,7 +16,7 @@ const CACHE_CONTROL = "public, max-age=0, must-revalidate, s-maxage=3600, stale-
 // Bump when a response shape changes. The data-day in the cache key handles new
 // data, but not a deploy that adds a field to an existing day — without this,
 // entries cached before the deploy keep being served for up to an hour.
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 
 export async function handleApi(
   request: Request,

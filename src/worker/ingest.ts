@@ -123,6 +123,26 @@ export function payloadMonth(
   return { year: Math.floor(ymd / 10000), month: Math.floor(ymd / 100) % 100 };
 }
 
+/**
+ * The newest day present in a `club_profile` payload, as a ymd.
+ *
+ * This is the day `deriveMemberDays` will stamp on the newest `member_day`
+ * rows, so anything written alongside them — the roster above all — has to use
+ * it rather than the wall clock. Running before chrono's 10:00 refresh means
+ * today's date and chrono's newest day are different days. (D034)
+ */
+export function latestPayloadYmd(
+  profile: { club_friend_history?: { actual_date: number }[] },
+  year: number,
+  month: number,
+): number | null {
+  const days = (profile.club_friend_history ?? [])
+    .map((r) => r.actual_date)
+    .filter((d) => !isImpossibleDay(year, month, d));
+
+  return days.length > 0 ? toYmd(year, month, Math.max(...days)) : null;
+}
+
 /** Normalise and persist one club's profile response. */
 export async function ingestClubProfile(
   env: Env,
@@ -217,12 +237,20 @@ export async function ingestClubProfile(
   // written before someone left keep the old club and nothing revisits them.
   // Storing the array means every reader can ask chrono's answer directly
   // rather than reconstructing it. (D034)
+  //
+  // Dated by chrono's newest day, NOT by `ymd`. The two differ every time we
+  // run before chrono's daily refresh: on the 4th, chrono's newest data is the
+  // 3rd, and `member_day` rows are dated the 3rd by `deriveMemberDays`. Writing
+  // the roster under the 4th put it on a day with no member rows, so every
+  // club joined to nothing and rendered empty. (D034)
+  const rosterYmd = latestPayloadYmd(profile, year, month) ?? ymd;
+
   for (const friendViewerId of roster) {
     statements.push(
       env.DB.prepare(
         `INSERT INTO club_roster (circle_id, ymd, friend_viewer_id) VALUES (?, ?, ?)
          ON CONFLICT (circle_id, ymd, friend_viewer_id) DO NOTHING`,
-      ).bind(circleId, ymd, friendViewerId),
+      ).bind(circleId, rosterYmd, friendViewerId),
     );
   }
 
@@ -233,7 +261,7 @@ export async function ingestClubProfile(
       `DELETE FROM club_roster
         WHERE circle_id = ? AND ymd = ?
           AND friend_viewer_id NOT IN (${[...roster].map(() => "?").join(",") || "NULL"})`,
-    ).bind(circleId, ymd, ...roster),
+    ).bind(circleId, rosterYmd, ...roster),
   );
 
   for (const member of profile.club_friend_profile) {

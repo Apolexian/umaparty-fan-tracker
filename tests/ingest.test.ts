@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { payloadMonth, startYmdFor, ymdOf } from "../src/worker/ingest.ts";
+import { latestPayloadYmd, payloadMonth, startYmdFor, ymdOf } from "../src/worker/ingest.ts";
 
 describe("ymdOf", () => {
   it("uses UTC, since chrono's data day is UTC-based", () => {
@@ -74,5 +74,34 @@ describe("payloadMonth — which month the payload covers (D033)", () => {
       year: 2026,
       month: 9,
     });
+  });
+});
+
+describe("latestPayloadYmd — roster must share member_day's day (D034)", () => {
+  it("uses chrono's newest day, not the wall clock", () => {
+    // Running on the 4th before chrono's 10:00 refresh: its newest day is the
+    // 3rd. Dating the roster by the clock put it on a day with no member rows,
+    // so every club joined to nothing and showed 0 members.
+    const profile = {
+      club_friend_history: [
+        { actual_date: 1 },
+        { actual_date: 2 },
+        { actual_date: 3 },
+      ],
+    };
+
+    expect(latestPayloadYmd(profile, 2026, 9)).toBe(20260903);
+  });
+
+  it("ignores a day the month cannot have", () => {
+    // September has 30 days; a 31 here is last month's tail (D032).
+    const profile = { club_friend_history: [{ actual_date: 2 }, { actual_date: 31 }] };
+
+    expect(latestPayloadYmd(profile, 2026, 9)).toBe(20260902);
+  });
+
+  it("returns null for an empty payload so the caller can fall back", () => {
+    expect(latestPayloadYmd({ club_friend_history: [] }, 2026, 9)).toBeNull();
+    expect(latestPayloadYmd({}, 2026, 9)).toBeNull();
   });
 });
