@@ -651,3 +651,15 @@ read a September date and members appeared in their pre-reshuffle clubs.
 D032 was the same incident seen through a narrower lens: it caught only the
 31st, which stood out by being a date September does not have. The days that
 exist in both months needed this fix.
+
+**The 3rd was phantom too, and `0008` stopped one day short of it.** Row counts
+alone made the 1st-3rd look genuine (167/179/133), so the delete began at the
+4th. It should have begun at the 3rd: all 133 of its rows carry a `fan_count`
+identical to the same member's 3 August row, pre-reshuffle `circle_id`
+included. Viewer 700494191843 holds 1,347,269,148 on both 20260803 and
+20260903 — *lower* than its own 20260902 value, which is impossible for a
+cumulative count. `0009` removes it. The 1st and 2nd are genuine: 9 and 7
+incidental matches, and chrono still serves exactly days 1 and 2 per club.
+
+The lesson for next month: verify a suspect day against the previous month's
+same day, rather than trusting that varying row counts mean real data.
