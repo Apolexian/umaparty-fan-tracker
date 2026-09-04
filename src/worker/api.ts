@@ -16,7 +16,7 @@ const CACHE_CONTROL = "public, max-age=0, must-revalidate, s-maxage=3600, stale-
 // Bump when a response shape changes. The data-day in the cache key handles new
 // data, but not a deploy that adds a field to an existing day — without this,
 // entries cached before the deploy keep being served for up to an hour.
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 
 export async function handleApi(
   request: Request,
@@ -127,9 +127,17 @@ async function getClubs(env: Env) {
             lm.name AS leader_name,
             pin.friend_viewer_id AS proposed_leader_viewer_id,
             pm.name AS proposed_leader_name,
-            (SELECT COUNT(*) FROM member_day md WHERE md.circle_id = c.circle_id AND md.ymd = ?)
-              AS tracked_members,
+            -- Both counts follow chrono's roster for the day, not our derived
+            -- circle_id, which goes stale for anyone who has left (D034).
+            (SELECT COUNT(*) FROM member_day md
+              JOIN club_roster r ON r.circle_id = md.circle_id
+                                AND r.ymd = md.ymd
+                                AND r.friend_viewer_id = md.friend_viewer_id
+              WHERE md.circle_id = c.circle_id AND md.ymd = ?) AS tracked_members,
             (SELECT SUM(md.mtd_avg) FROM member_day md
+              JOIN club_roster r ON r.circle_id = md.circle_id
+                                AND r.ymd = md.ymd
+                                AND r.friend_viewer_id = md.friend_viewer_id
               WHERE md.circle_id = c.circle_id AND md.ymd = ?) AS club_daily_avg
        FROM clubs c
        LEFT JOIN member_pins pin
@@ -156,6 +164,12 @@ async function getClub(env: Env, circleId: number, month: string | null) {
             md.rank_overall, m.leader_chara_id, m.leader_chara_dress_id, m.last_login_time
        FROM member_day md
        JOIN members m ON m.friend_viewer_id = md.friend_viewer_id
+       -- Chrono's roster for the day decides who is in the club. Our own
+       -- circle_id keeps the old club for anyone who has left, which is how a
+       -- 30-slot club came to list 33. (D034)
+       JOIN club_roster r ON r.circle_id = md.circle_id
+                         AND r.ymd = md.ymd
+                         AND r.friend_viewer_id = md.friend_viewer_id
       WHERE md.circle_id = ? AND md.ymd = ?
       ORDER BY md.mtd_avg DESC`,
   )
@@ -325,6 +339,11 @@ async function getStandings(env: Env) {
             md.days_active
        FROM member_day md
        JOIN members m ON m.friend_viewer_id = md.friend_viewer_id
+       -- Someone who has left is not in next month's reshuffle and must not be
+       -- dealt a seat another member earned (D034).
+       JOIN club_roster r ON r.circle_id = md.circle_id
+                         AND r.ymd = md.ymd
+                         AND r.friend_viewer_id = md.friend_viewer_id
       WHERE md.ymd = ?`,
   )
     .bind(ymd)

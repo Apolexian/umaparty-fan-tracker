@@ -212,6 +212,30 @@ export async function ingestClubProfile(
 
   const roster = new Set(club.circle_user_array);
 
+  // Chrono's roster, stored as given. Deriving membership from
+  // `member_day.circle_id` instead is what let a club show 33 members: rows
+  // written before someone left keep the old club and nothing revisits them.
+  // Storing the array means every reader can ask chrono's answer directly
+  // rather than reconstructing it. (D034)
+  for (const friendViewerId of roster) {
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO club_roster (circle_id, ymd, friend_viewer_id) VALUES (?, ?, ?)
+         ON CONFLICT (circle_id, ymd, friend_viewer_id) DO NOTHING`,
+      ).bind(circleId, ymd, friendViewerId),
+    );
+  }
+
+  // A member who left today is gone from the array, so their row for today is
+  // stale the moment it is written. Drop anyone this club no longer holds.
+  statements.push(
+    env.DB.prepare(
+      `DELETE FROM club_roster
+        WHERE circle_id = ? AND ymd = ?
+          AND friend_viewer_id NOT IN (${[...roster].map(() => "?").join(",") || "NULL"})`,
+    ).bind(circleId, ymd, ...roster),
+  );
+
   for (const member of profile.club_friend_profile) {
     statements.push(
       env.DB.prepare(

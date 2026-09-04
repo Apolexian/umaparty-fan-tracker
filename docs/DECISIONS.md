@@ -663,3 +663,34 @@ incidental matches, and chrono still serves exactly days 1 and 2 per club.
 
 The lesson for next month: verify a suspect day against the previous month's
 same day, rather than trusting that varying row counts mean real data.
+
+---
+
+## D034 — Club membership is chrono's roster, stored, not our derived one <a id="d034"></a>
+**2026-09-04 · ACTIVE**
+
+`club_profile` returns `circle_user_array`: exactly who is in a club, matching
+`member_num`, with nobody in two clubs at once. We used it to gate one loop at
+ingest and then discarded it, deriving "who is in this club" from
+`member_day.circle_id` instead.
+
+That derivation is wrong the moment somebody leaves. Rows written on earlier
+days keep the old `circle_id` and nothing revisits them, so カック・サドル listed
+**33 members** on the day four of them left — more than the game permits.
+
+- `club_roster (circle_id, ymd, friend_viewer_id)` stores the array as given,
+  one row per club per day, so any past day can be read back.
+- The ingest also deletes roster rows for members no longer in the array, since
+  someone who leaves during the day is gone from it.
+- `/api/clubs`, `/api/club/:id` and `/api/standings` join it instead of trusting
+  `member_day.circle_id`. Standings matters most: a departed member was being
+  ranked and dealt a seat another member had earned.
+- `0011` reconstructs history from `club_stint`. Its fallback arm — for rows no
+  stint covers — must also exclude members whose stint *ended*, or the four who
+  left come straight back and the club reads 33 again.
+
+The general lesson, and the reason this had to be fixed twice: **when chrono
+states a fact, store the fact.** Deriving it and then correcting the derivation
+in SQL is how we got a phantom month (D033) and a 33-member club from the same
+underlying habit. `member_num`, `circle_user_array` and `month_filter` are all
+chrono telling us plainly; each one we ignored became a bug.
