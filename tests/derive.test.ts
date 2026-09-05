@@ -10,6 +10,8 @@ import {
   latestYmd,
   leaderboardForDay,
   mtdAverage,
+  preStintCarryover,
+  stintCumulative,
   toYmd,
 } from "../src/worker/derive.ts";
 import type { ClubProfileResponse } from "../src/worker/types.ts";
@@ -283,5 +285,114 @@ describe("impossible days — chrono's rolling window (D032)", () => {
 
     const out = deriveMemberDays(rows, { year: 2026, month: 8, circleId: 1 });
     expect(out.map((r) => r.ymd)).toEqual([20260831]);
+  });
+});
+
+describe("pre-stint carryover — the un-wiped mover (D035)", () => {
+  // moo, 211980162466, as chrono served them on 4 September 2026. Moved
+  // TwomaParty -> UmaParty on the 2nd, and chrono did NOT zero the 1st, so the
+  // cumulative still carries 7,852,303 fans earned in the old club.
+  const moo = [
+    { actual_date: 1, gain: 7852303, cum: 7852303 },
+    { actual_date: 2, gain: 11045603, cum: 18897906 },
+    { actual_date: 3, gain: 11441240, cum: 30339146 },
+    { actual_date: 4, gain: 12464211, cum: 42803357 },
+  ].map((r) => ({
+    friend_viewer_id: 211980162466,
+    friend_name: "moo",
+    actual_date: r.actual_date,
+    interpolated_fan_count: 0,
+    adjusted_interpolated_fan_gain: r.gain,
+    adjusted_fan_gain_cumulative: r.cum,
+  }));
+
+  const stintStarts = new Map([[211980162466, 2]]);
+
+  it("subtracts fans earned in the previous club", () => {
+    const out = deriveMemberDays(moo, {
+      year: 2026,
+      month: 9,
+      circleId: 665160774,
+      stintStarts,
+    });
+
+    const day4 = out.find((r) => r.ymd === 20260904)!;
+    expect(day4.daysActive).toBe(3);
+    // 42,803,357 - 7,852,303 = 34,951,054 over 3 days.
+    expect(day4.mtdCumulative).toBe(34951054);
+    expect(day4.mtdAvg).toBe(11650351);
+  });
+
+  it("no longer reports the inflated average that shipped", () => {
+    const out = deriveMemberDays(moo, {
+      year: 2026,
+      month: 9,
+      circleId: 665160774,
+      stintStarts,
+    });
+
+    // What the site served on 4 September: the whole month's fans over the
+    // stint's days. ~22% too high, and it out-ranked members who never moved.
+    expect(out.find((r) => r.ymd === 20260904)!.mtdAvg).not.toBe(14267786);
+  });
+
+  it("leaves a member chrono did wipe untouched", () => {
+    // The usual case: pre-move days zeroed, so the cumulative already starts
+    // at the stint and there is nothing to subtract.
+    const wiped = moo.map((r) =>
+      r.actual_date < 2
+        ? { ...r, adjusted_interpolated_fan_gain: 0, adjusted_fan_gain_cumulative: 0 }
+        : {
+            ...r,
+            adjusted_fan_gain_cumulative: r.adjusted_fan_gain_cumulative - 7852303,
+          },
+    );
+
+    const out = deriveMemberDays(wiped, {
+      year: 2026,
+      month: 9,
+      circleId: 665160774,
+      stintStarts,
+    });
+
+    const day4 = out.find((r) => r.ymd === 20260904)!;
+    expect(day4.mtdCumulative).toBe(34951054);
+    expect(day4.mtdAvg).toBe(11650351);
+  });
+
+  it("leaves a member who never moved untouched", () => {
+    const out = deriveMemberDays(moo, {
+      year: 2026,
+      month: 9,
+      circleId: 665160774,
+      stintStarts: new Map([[211980162466, 1]]),
+    });
+
+    const day4 = out.find((r) => r.ymd === 20260904)!;
+    expect(day4.daysActive).toBe(4);
+    expect(day4.mtdCumulative).toBe(42803357);
+    expect(day4.mtdAvg).toBe(10700839);
+  });
+
+  it("counts the un-wiped movers so chrono changing behaviour is visible", () => {
+    expect(preStintCarryover(moo, { year: 2026, month: 9, stintStarts })).toBe(1);
+
+    const wiped = moo.map((r) =>
+      r.actual_date < 2 ? { ...r, adjusted_fan_gain_cumulative: 0 } : r,
+    );
+    expect(preStintCarryover(wiped, { year: 2026, month: 9, stintStarts })).toBe(0);
+
+    // Never moved, so there is no pre-stint window to carry anything.
+    expect(
+      preStintCarryover(moo, {
+        year: 2026,
+        month: 9,
+        stintStarts: new Map([[211980162466, 1]]),
+      }),
+    ).toBe(0);
+  });
+
+  it("never returns a negative numerator", () => {
+    expect(stintCumulative(100, 500)).toBe(0);
   });
 });

@@ -14,7 +14,8 @@
     "migrate:local": "wrangler d1 migrations apply umaparty --local",
     "migrate:remote": "wrangler d1 migrations apply umaparty --remote",
     "backfill": "node --experimental-strip-types scripts/backfill.ts",
-    "seed-admin": "node --experimental-strip-types scripts/seed-admin.ts"
+    "seed-admin": "node --experimental-strip-types scripts/seed-admin.ts",
+    "repair:month": "node --experimental-strip-types scripts/repair-month.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.0.0",

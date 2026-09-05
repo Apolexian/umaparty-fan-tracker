@@ -12,7 +12,13 @@
 //     is the only surviving copy, so a zero must never overwrite it.
 
 import { ChronoClient, ChronoError, REQUEST_GAP_MS, sleep } from "./chrono.ts";
-import { deriveMemberDays, isImpossibleDay, toYmd, ymdToYearMonth } from "./derive.ts";
+import {
+  deriveMemberDays,
+  isImpossibleDay,
+  preStintCarryover,
+  toYmd,
+  ymdToYearMonth,
+} from "./derive.ts";
 import type { ClubProfileResponse, Env } from "./types.ts";
 
 export interface ClubRow {
@@ -61,9 +67,25 @@ export async function ingestAll(env: Env, now = new Date()): Promise<IngestSumma
     const startedAt = nowIso();
     try {
       const profile = await client.clubProfile(club.circle_id);
-      const rowsWritten = await ingestClubProfile(env, club.circle_id, profile, now);
+      const { rowsWritten, carryover } = await ingestClubProfile(
+        env,
+        club.circle_id,
+        profile,
+        now,
+      );
 
-      await recordRun(env, startedAt, club.circle_id, "daily", "ok", null, rowsWritten, null);
+      await recordRun(
+        env,
+        startedAt,
+        club.circle_id,
+        "daily",
+        "ok",
+        null,
+        rowsWritten,
+        carryover > 0
+          ? `note: ${carryover} mover(s) kept a non-zero pre-stint cumulative (D035)`
+          : null,
+      );
       summaries.push({ circleId: club.circle_id, status: "ok", rowsWritten });
     } catch (error) {
       const chrono = error instanceof ChronoError ? error : null;
@@ -149,7 +171,7 @@ export async function ingestClubProfile(
   circleId: number,
   profile: ClubProfileResponse,
   now: Date,
-): Promise<number> {
+): Promise<{ rowsWritten: number; carryover: number }> {
   const club = profile.club[0];
   if (!club) throw new Error(`club_profile for ${circleId} contained no club row`);
 
@@ -314,10 +336,34 @@ export async function ingestClubProfile(
 
   const stintStarts = await currentStintStarts(env, circleId, year, month);
 
-  const derived = deriveMemberDays(
-    profile.club_friend_history.filter((r) => roster.has(r.friend_viewer_id)),
-    { year, month, circleId, stintStarts },
+  const rosterHistory = profile.club_friend_history.filter((r) =>
+    roster.has(r.friend_viewer_id),
   );
+
+  // How many movers chrono left un-wiped today. Corrected in derive, reported
+  // here so a change in chrono's behaviour is visible in ingest_runs. (D035)
+  const carryover = preStintCarryover(rosterHistory, { year, month, stintStarts });
+
+  const derived = deriveMemberDays(rosterHistory, {
+    year,
+    month,
+    circleId,
+    stintStarts,
+  });
+
+  // Days before a member's stint began belong to the club they left. Chrono
+  // purges them; we wrote them while they were still ours, and derive skips
+  // them, so the upsert below can never revise them — they would sit at their
+  // stale value under this club's id forever. Drop them explicitly. (D035)
+  for (const [friendViewerId, startDay] of stintStarts) {
+    if (startDay <= 1) continue;
+    statements.push(
+      env.DB.prepare(
+        `DELETE FROM member_day
+          WHERE friend_viewer_id = ? AND circle_id = ? AND ymd >= ? AND ymd < ?`,
+      ).bind(friendViewerId, circleId, toYmd(year, month, 1), toYmd(year, month, startDay)),
+    );
+  }
 
   for (const row of derived) {
     statements.push(
@@ -362,7 +408,7 @@ export async function ingestClubProfile(
   statements.push(...(await stintStatements(env, circleId, profile, ymd)));
 
   await env.DB.batch(statements);
-  return statements.length;
+  return { rowsWritten: statements.length, carryover };
 }
 
 /**

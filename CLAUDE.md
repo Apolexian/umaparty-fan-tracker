@@ -36,6 +36,11 @@ with D1 for history. Not Pages — Pages cannot run Cron Triggers (D011).
   daily ingest misses a reshuffle day, that history is gone forever. (D010)
 - **Ingest must never overwrite a non-zero `fan_gain` with a `0`.** That zero
   is chrono wiping a mover's history. (D017)
+- **`adjusted_fan_gain_cumulative` counts from the 1st, across clubs.** The
+  denominator is stint days, so the numerator is cut to the same window —
+  otherwise a mover's old club's fans inflate their average. Chrono usually
+  zeroes pre-move days, but not always, and that is exactly when it breaks.
+  (D035)
 
 ## API
 
@@ -60,4 +65,5 @@ npm test                  # vitest — includes the sheet-parity guard
 npm run dev               # wrangler dev (Worker + assets)
 npm run migrate:local     # apply migrations to the local D1
 npm run backfill          # one-time historical import, 14 months x 5 clubs
+npm run repair:month -- --month 2026-09 [--remote]   # re-derive a month with stints
 ```

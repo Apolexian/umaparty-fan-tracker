@@ -78,6 +78,24 @@ export function daysActiveFor(
 }
 
 /**
+ * Fans accrued during the stint, from a whole-month cumulative.
+ *
+ * `adjusted_fan_gain_cumulative` counts from the 1st regardless of club, so for
+ * a mover it still contains fans earned elsewhere. Days-active (D016) is the
+ * denominator, so the numerator has to be cut to the same window or the two
+ * disagree and the average is overstated. (D035)
+ *
+ * Usually chrono has already zeroed the pre-move days and `baseline` is 0, but
+ * that wipe is not uniform (D017) — when it does not happen, this is what
+ * removes the other club's fans.
+ *
+ * @param baseline cumulative on the day before the stint began.
+ */
+export function stintCumulative(cumulative: number, baseline: number): number {
+  return Math.max(0, cumulative - baseline);
+}
+
+/**
  * Month-to-date average daily fans — the number the tracking sheet shows and
  * the number the promotion reshuffle sorts on.
  */
@@ -125,6 +143,14 @@ export function deriveMemberDays(
     const stintStart = opts.stintStarts?.get(friendViewerId);
     const start = stintStart ?? firstAccrualDay(rows);
 
+    // Fans already banked before the stint began — earned in another club, and
+    // still present in chrono's cumulative when the pre-move wipe did not
+    // happen. Subtracted from every day so numerator and denominator cover the
+    // same window. (D035)
+    const baseline = rows
+      .filter((r) => r.actual_date < start)
+      .reduce((max, r) => Math.max(max, r.adjusted_fan_gain_cumulative), 0);
+
     let prevAvg: number | null = null;
 
     for (const row of rows) {
@@ -137,7 +163,8 @@ export function deriveMemberDays(
       if (row.actual_date < start) continue;
 
       const daysActive = Math.max(1, row.actual_date - start + 1);
-      const mtdAvg = mtdAverage(row.adjusted_fan_gain_cumulative, daysActive);
+      const mtdCumulative = stintCumulative(row.adjusted_fan_gain_cumulative, baseline);
+      const mtdAvg = mtdAverage(mtdCumulative, daysActive);
 
       out.push({
         friendViewerId,
@@ -145,7 +172,7 @@ export function deriveMemberDays(
         circleId: opts.circleId,
         fanCount: row.interpolated_fan_count,
         fanGain: row.adjusted_interpolated_fan_gain,
-        mtdCumulative: row.adjusted_fan_gain_cumulative,
+        mtdCumulative,
         daysActive,
         mtdAvg,
         mtdAvgDelta: prevAvg === null ? 0 : mtdAvg - prevAvg,
@@ -158,6 +185,47 @@ export function deriveMemberDays(
 
   assignRanks(out);
   return out;
+}
+
+/**
+ * Members whose pre-stint days chrono did not zero.
+ *
+ * D016's denominator assumes the cumulative starts at the stint. That holds
+ * only because chrono normally wipes a mover's earlier days — and D017 records
+ * that the wipe is not uniform. When it is skipped, the numerator silently
+ * covers a wider window than the denominator and the average is overstated;
+ * that shipped for a whole reshuffle before anyone noticed. (D035)
+ *
+ * `stintCumulative` corrects the number. This reports how often the assumption
+ * was actually false, so a change in chrono's behaviour shows up in
+ * `ingest_runs` rather than in Discord.
+ */
+export function preStintCarryover(
+  history: ClubFriendHistoryOut[],
+  opts: Pick<DeriveOptions, "year" | "month" | "stintStarts">,
+): number {
+  const byMember = new Map<number, ClubFriendHistoryOut[]>();
+  for (const row of history) {
+    if (isImpossibleDay(opts.year, opts.month, row.actual_date)) continue;
+    let rows = byMember.get(row.friend_viewer_id);
+    if (!rows) {
+      rows = [];
+      byMember.set(row.friend_viewer_id, rows);
+    }
+    rows.push(row);
+  }
+
+  let affected = 0;
+  for (const [friendViewerId, rawRows] of byMember) {
+    const rows = [...rawRows].sort((a, b) => a.actual_date - b.actual_date);
+    const start = opts.stintStarts?.get(friendViewerId) ?? firstAccrualDay(rows);
+    if (start <= 1) continue;
+    const carried = rows.some(
+      (r) => r.actual_date < start && r.adjusted_fan_gain_cumulative > 0,
+    );
+    if (carried) affected += 1;
+  }
+  return affected;
 }
 
 /**

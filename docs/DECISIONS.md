@@ -710,3 +710,66 @@ states a fact, store the fact.** Deriving it and then correcting the derivation
 in SQL is how we got a phantom month (D033) and a 33-member club from the same
 underlying habit. `member_num`, `circle_user_array` and `month_filter` are all
 chrono telling us plainly; each one we ignored became a bug.
+
+---
+
+## D035 — The numerator is cut to the stint, not just the denominator <a id="d035"></a>
+**2026-09-05 · reported in Discord · verified against live data · ACTIVE**
+**Supersedes in part [D016](#d016) — the denominator stands; the numerator was wrong.**
+
+D016 established that the divisor is days active in the club. It did not say
+what the *dividend* covers, and the answer turned out to be a different window:
+`adjusted_fan_gain_cumulative` counts from the 1st regardless of club.
+
+For a member who moved mid-month, that cumulative still contains fans earned in
+their previous club, divided over a stint that excludes those days. Both halves
+of the fraction were individually defensible and together wrong.
+
+Observed on `moo` (211980162466), who moved TwomaParty → UmaParty on 2 Sep:
+
+| day | chrono cumulative | days active | shipped avg | correct avg |
+|---|---|---|---|---|
+| 2 Sep | 18,897,906 | 1 | 18,897,906 | 11,045,603 |
+| 3 Sep | 30,339,146 | 2 | 15,169,573 | 11,243,422 |
+| 4 Sep | 42,803,357 | 3 | **14,267,786** | **11,650,351** |
+
+The 7,852,303 gained on 1 Sep was earned in TwomaParty.
+
+**Why D016's evidence did not catch it.** D016 was validated against August,
+and chrono normally zeroes a mover's pre-move days — so the cumulative already
+started at the stint and the two windows agreed by accident. D017 had already
+recorded that this wipe **is not uniform**, naming three members who kept a
+non-zero day 1. That was the counterexample, written down a month earlier and
+not connected to the divisor. In September chrono did not wipe, and the
+assumption failed for 72 of 172 members at once.
+
+Fix: subtract the cumulative as at the day before the stint began
+(`stintCumulative` in `derive.ts`), so numerator and denominator cover the same
+window. Where chrono did wipe, the baseline is 0 and nothing changes — the
+August sheet-parity guard is untouched, which is the point.
+
+**Scale.** 72 of 172 members affected, 12 of the top 20, averages overstated by
+up to ~33%, and 161 of 172 overall ranks wrong. It ranked movers above members
+who had ground the whole month — exactly the population the promotion feature
+exists to order fairly.
+
+**Two secondary consequences.**
+
+1. Pre-stint `member_day` rows are now deleted. `derive` skips days before the
+   stint, so the upsert could never revise them; they sat at their stale value
+   under the *new* club's id, misattributing another club's day. This is the
+   stray 1 Sep bar in the reported screenshot.
+2. Ingest counts un-wiped movers per run and writes the count to
+   `ingest_runs.error` as a note. The assumption this decision corrects is one
+   chrono can flip silently at any reshuffle; now a flip is visible in the run
+   log instead of in Discord a month later.
+
+**Repair.** `npm run repair:month -- --month YYYY-MM [--remote]` re-derives a
+month with real stint data and recomputes both ranks. `npm run backfill` cannot
+do this job: it derives without stints and falls back to the leading-zeros
+heuristic (D026), which for an un-wiped mover returns day 1 and reproduces the
+bug it is meant to repair.
+
+**The general lesson.** A ratio has two windows, and D016 only ever pinned one
+of them. When a metric divides one API field by a locally-derived count, the
+field's own window is an assumption too — state it, and assert it.
