@@ -308,7 +308,7 @@ describe("pre-stint carryover — the un-wiped mover (D035)", () => {
 
   const stintStarts = new Map([[211980162466, 2]]);
 
-  it("subtracts fans earned in the previous club", () => {
+  it("subtracts fans earned in the previous club and the split join day", () => {
     const out = deriveMemberDays(moo, {
       year: 2026,
       month: 9,
@@ -316,11 +316,14 @@ describe("pre-stint carryover — the un-wiped mover (D035)", () => {
       stintStarts,
     });
 
+    // Joined on the 2nd, so the 2nd is split and the metric starts on the 3rd.
+    expect(out.map((r) => r.ymd)).toEqual([20260903, 20260904]);
+
     const day4 = out.find((r) => r.ymd === 20260904)!;
-    expect(day4.daysActive).toBe(3);
-    // 42,803,357 - 7,852,303 = 34,951,054 over 3 days.
-    expect(day4.mtdCumulative).toBe(34951054);
-    expect(day4.mtdAvg).toBe(11650351);
+    expect(day4.daysActive).toBe(2);
+    // 42,803,357 - 18,897,906 (through the join day) = 23,905,451 over 2 days.
+    expect(day4.mtdCumulative).toBe(23905451);
+    expect(day4.mtdAvg).toBe(11952726);
   });
 
   it("no longer reports the inflated average that shipped", () => {
@@ -334,6 +337,8 @@ describe("pre-stint carryover — the un-wiped mover (D035)", () => {
     // What the site served on 4 September: the whole month's fans over the
     // stint's days. ~22% too high, and it out-ranked members who never moved.
     expect(out.find((r) => r.ymd === 20260904)!.mtdAvg).not.toBe(14267786);
+    // Nor the intermediate D035 value, which still counted the split join day.
+    expect(out.find((r) => r.ymd === 20260904)!.mtdAvg).not.toBe(11650351);
   });
 
   it("leaves a member chrono did wipe untouched", () => {
@@ -356,8 +361,8 @@ describe("pre-stint carryover — the un-wiped mover (D035)", () => {
     });
 
     const day4 = out.find((r) => r.ymd === 20260904)!;
-    expect(day4.mtdCumulative).toBe(34951054);
-    expect(day4.mtdAvg).toBe(11650351);
+    expect(day4.mtdCumulative).toBe(23905451);
+    expect(day4.mtdAvg).toBe(11952726);
   });
 
   it("leaves a member who never moved untouched", () => {
@@ -368,10 +373,20 @@ describe("pre-stint carryover — the un-wiped mover (D035)", () => {
       stintStarts: new Map([[211980162466, 1]]),
     });
 
+    // A stint that predates the month has no split join day to drop.
     const day4 = out.find((r) => r.ymd === 20260904)!;
     expect(day4.daysActive).toBe(4);
     expect(day4.mtdCumulative).toBe(42803357);
     expect(day4.mtdAvg).toBe(10700839);
+  });
+
+  it("keeps the heuristic's first day when we have no real join date", () => {
+    // Without club_stint we only have leading zeros (D026), which mark the
+    // first day chrono reported a gain — not a join date. Dropping a day on
+    // that basis would delete real history.
+    const out = deriveMemberDays(moo, { year: 2026, month: 9, circleId: 665160774 });
+    expect(out.map((r) => r.ymd)).toEqual([20260901, 20260902, 20260903, 20260904]);
+    expect(out.find((r) => r.ymd === 20260904)!.daysActive).toBe(4);
   });
 
   it("counts the un-wiped movers so chrono changing behaviour is visible", () => {

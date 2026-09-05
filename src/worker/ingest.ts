@@ -14,6 +14,7 @@
 import { ChronoClient, ChronoError, REQUEST_GAP_MS, sleep } from "./chrono.ts";
 import {
   deriveMemberDays,
+  firstCountedDay,
   isImpossibleDay,
   preStintCarryover,
   toYmd,
@@ -351,17 +352,19 @@ export async function ingestClubProfile(
     stintStarts,
   });
 
-  // Days before a member's stint began belong to the club they left. Chrono
-  // purges them; we wrote them while they were still ours, and derive skips
-  // them, so the upsert below can never revise them — they would sit at their
-  // stale value under this club's id forever. Drop them explicitly. (D035)
+  // Days before a member's counted window belong to the club they left, or are
+  // the split join day. Chrono purges the former; we wrote them while they were
+  // still ours, and derive skips them, so the upsert below can never revise
+  // them — they would sit at their stale value under this club's id forever.
+  // Drop them explicitly. (D035, D036)
   for (const [friendViewerId, startDay] of stintStarts) {
-    if (startDay <= 1) continue;
+    const counted = firstCountedDay(startDay);
+    if (counted <= 1) continue;
     statements.push(
       env.DB.prepare(
         `DELETE FROM member_day
           WHERE friend_viewer_id = ? AND circle_id = ? AND ymd >= ? AND ymd < ?`,
-      ).bind(friendViewerId, circleId, toYmd(year, month, 1), toYmd(year, month, startDay)),
+      ).bind(friendViewerId, circleId, toYmd(year, month, 1), toYmd(year, month, counted)),
     );
   }
 

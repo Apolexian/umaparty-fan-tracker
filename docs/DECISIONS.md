@@ -773,3 +773,46 @@ bug it is meant to repair.
 **The general lesson.** A ratio has two windows, and D016 only ever pinned one
 of them. When a metric divides one API field by a locally-derived count, the
 field's own window is an assumption too — state it, and assert it.
+
+---
+
+## D036 — The join day is dropped, not just the days before it <a id="d036"></a>
+**2026-09-05 · KoYu1 (Discord) · ACTIVE**
+**Extends [D035](#d035).**
+
+D035 cut the metric's window to the stint. The day the stint *begins* is still
+split: the member spent part of it in their old club and part in the new one,
+and chrono publishes no intra-day breakdown, so counting it whole credits the
+new club with fans earned elsewhere.
+
+> "i'd say it's more fair to drop first day for everyone who had a club join
+> date within the current month" — KoYu1
+
+So the average now starts the day *after* the join day. moo, 4 September:
+42,803,357 − 18,897,906 = 23,905,451 over 2 days = **11,952,726**.
+
+**Only when the join date is real.** `firstCountedDay` takes a `known` flag and
+the derive path only drops a day when `club_stint` supplied the start. The
+leading-zeros heuristic (D026) is not a join date — it marks the first day
+chrono reported a gain, which for a settled member is just their first active
+day. Dropping that deletes real history, and for a member with a single day of
+history erases them from the month entirely. That is not hypothetical: it broke
+the D032 day-31 test on the first attempt, and cascaded into six promotion
+tests.
+
+**The effect is not a uniform haircut.** Across the 72 September movers it
+ranges from −8.6% to +24.6%: dropping a weak join day *raises* an average.
+moo 14.27M → 11.65M → 11.95M across the two fixes; Boros +24.6% because he
+joined on the 3rd and now has one counted day.
+
+**Known cost.** Movers who joined late in the reshuffle window are ranked on
+very few days early in the month — Boros on one. This leans harder on D019's
+decision to have no minimum-days guard. If that ever becomes unfair in
+practice, D019 is the decision to revisit, not this one.
+
+**Why chrono's own zeroing cannot carry this.** Checked all 72 September
+movers: only 6 kept a non-zero day before their stint. Join times in that group
+run 00:10 to 20:49 and the zeroed group covers the same span — GigamaxReborn
+joined four seconds after moo and *was* zeroed. There is no boundary rule to
+infer; the wipe is simply unreliable, as D017 said. `join_time` is the only
+dependable signal, which is why the sheet cannot reproduce this and we can.

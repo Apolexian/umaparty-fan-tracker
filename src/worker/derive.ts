@@ -96,6 +96,29 @@ export function stintCumulative(cumulative: number, baseline: number): number {
 }
 
 /**
+ * The first day that counts toward the metric, given the day the stint began.
+ *
+ * The join day itself is split: the member spent part of it in their old club
+ * and part in this one, and chrono publishes no intra-day breakdown. Counting
+ * it whole credits this club with fans earned elsewhere — the same error D035
+ * fixed for earlier days, one day later. So it is dropped and the average
+ * starts the day after. (D036)
+ *
+ * A stint that began before this month has no split day to drop: they were
+ * here from the 1st.
+ *
+ * @param known whether `stintStartDay` is a real join date from `club_stint`.
+ *   The leading-zeros heuristic (D026) is not one — it only marks the first day
+ *   chrono reported a gain, which for a member who was here all along is simply
+ *   their first active day. Dropping that would delete real data, and for a
+ *   member with a single day of history would erase them entirely.
+ */
+export function firstCountedDay(stintStartDay: number, known = true): number {
+  if (!known || stintStartDay <= 1) return stintStartDay <= 1 ? 1 : stintStartDay;
+  return stintStartDay + 1;
+}
+
+/**
  * Month-to-date average daily fans — the number the tracking sheet shows and
  * the number the promotion reshuffle sorts on.
  */
@@ -141,10 +164,15 @@ export function deriveMemberDays(
   for (const [friendViewerId, rawRows] of byMember) {
     const rows = [...rawRows].sort((a, b) => a.actual_date - b.actual_date);
     const stintStart = opts.stintStarts?.get(friendViewerId);
-    const start = stintStart ?? firstAccrualDay(rows);
+    // The join day is split between two clubs, so the metric starts the day
+    // after it — but only when we have a real join date to trust. (D036)
+    const start =
+      stintStart === undefined
+        ? firstAccrualDay(rows)
+        : firstCountedDay(stintStart);
 
-    // Fans already banked before the stint began — earned in another club, and
-    // still present in chrono's cumulative when the pre-move wipe did not
+    // Fans already banked before the counted window — earned in another club,
+    // and still present in chrono's cumulative when the pre-move wipe did not
     // happen. Subtracted from every day so numerator and denominator cover the
     // same window. (D035)
     const baseline = rows
@@ -159,7 +187,8 @@ export function deriveMemberDays(
       // out of member_day, and with it out of MAX(ymd). (D032)
       if (isImpossibleDay(opts.year, opts.month, row.actual_date)) continue;
 
-      // Days before the stint began carry no meaningful average.
+      // Days before the counted window — pre-stint, or the split join day
+      // itself — carry no meaningful average. (D035, D036)
       if (row.actual_date < start) continue;
 
       const daysActive = Math.max(1, row.actual_date - start + 1);

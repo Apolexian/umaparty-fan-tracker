@@ -20,7 +20,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ChronoClient, REQUEST_GAP_MS, sleep } from "../src/worker/chrono.ts";
-import { deriveMemberDays, preStintCarryover, toYmd } from "../src/worker/derive.ts";
+import {
+  deriveMemberDays,
+  firstCountedDay,
+  preStintCarryover,
+  toYmd,
+} from "../src/worker/derive.ts";
 import type { ClubFriendHistoryOut } from "../src/worker/types.ts";
 
 const WRANGLER = join(process.cwd(), "node_modules", "wrangler", "bin", "wrangler.js");
@@ -156,12 +161,14 @@ async function main(): Promise<void> {
 
       const statements: string[] = [];
 
-      // Pre-stint days belong to the club the member left. Chrono purges them
-      // and derive skips them, so nothing else will ever clear them. (D035)
+      // Pre-stint days belong to the club the member left, and the join day is
+      // split between both. Chrono purges the former and derive skips both, so
+      // nothing else will ever clear them. (D035, D036)
       for (const [viewerId, startDay] of stintStarts) {
-        if (startDay <= 1) continue;
+        const counted = firstCountedDay(startDay);
+        if (counted <= 1) continue;
         statements.push(
-          `DELETE FROM member_day WHERE friend_viewer_id = ${viewerId} AND circle_id = ${club.circle_id} AND ymd >= ${toYmd(YEAR, MONTH, 1)} AND ymd < ${toYmd(YEAR, MONTH, startDay)};`,
+          `DELETE FROM member_day WHERE friend_viewer_id = ${viewerId} AND circle_id = ${club.circle_id} AND ymd >= ${toYmd(YEAR, MONTH, 1)} AND ymd < ${toYmd(YEAR, MONTH, counted)};`,
         );
       }
 

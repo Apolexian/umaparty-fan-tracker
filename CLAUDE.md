@@ -41,6 +41,9 @@ with D1 for history. Not Pages — Pages cannot run Cron Triggers (D011).
   otherwise a mover's old club's fans inflate their average. Chrono usually
   zeroes pre-move days, but not always, and that is exactly when it breaks.
   (D035)
+- **The join day is dropped too** — it is split between both clubs. Only when
+  `club_stint` gives a real join date; the leading-zeros heuristic is not one,
+  and dropping a day on it deletes real history. (D036)
 
 ## API
 
