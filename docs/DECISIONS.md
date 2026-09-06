@@ -816,3 +816,31 @@ run 00:10 to 20:49 and the zeroed group covers the same span — GigamaxReborn
 joined four seconds after moo and *was* zeroed. There is no boundary rule to
 infer; the wipe is simply unreliable, as D017 said. `join_time` is the only
 dependable signal, which is why the sheet cannot reproduce this and we can.
+
+---
+
+## D037 — Roster members with no counted day are listed, not hidden <a id="d037"></a>
+**2026-09-06 · reported in Discord · ACTIVE**
+
+The club page joined `member_day` to `club_roster` (D034) and listed only the
+result, so a member on chrono's roster with no row for that day simply vanished.
+The club header shows chrono's `member_num` while the table counts our rows, and
+the two disagreed: UmaFourty read 26 in chrono and 25 on the site.
+
+Nishinoes joined UmaFourty at 2026-09-05T23:22, after that day's 10:15 ingest.
+Chrono's roster is live; our `member_day` is a daily snapshot. Under D035/D036
+they also have no *counted* day yet — their day 4 predates the stint and day 5
+is the split join day — so even after the next ingest they stay absent until
+the 6th.
+
+Both causes are correct behaviour. Hiding the member is not: they are really in
+the club, and a table that silently omits them makes the site look wrong in
+exactly the place people check first.
+
+The club response now carries a `pending` list — on the roster, no counted day —
+rendered under the leaderboard with a dash for rank and "joined 5 Sep" in place
+of an average. They have no number yet, so they are not ranked and not included
+in the club total.
+
+This is a display decision only. It changes no metric and no projection: a
+member with no counted days has no average to rank on, and D019 still stands.

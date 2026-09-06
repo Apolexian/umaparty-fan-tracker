@@ -1,7 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { useApi, type ClubSummary, type LeaderboardRow } from "../lib/api.ts";
+import {
+  useApi,
+  type ClubSummary,
+  type LeaderboardRow,
+  type PendingRow,
+} from "../lib/api.ts";
 import { compactFans, fullFans, ymdLong } from "../lib/format.ts";
 import { Delta, ErrorNote, RankBadge, Ribbon, Spinner, StatPill } from "../components/Bits.tsx";
 import { LineChart, MemberProgressionChart, type MemberSeries } from "../components/Charts.tsx";
@@ -10,6 +15,7 @@ interface ClubResponse {
   ymd: number;
   club: ClubSummary & { name: string };
   leaderboard: LeaderboardRow[];
+  pending: PendingRow[];
   history: { ymd: number; rank: number; fan_count: number; fan_gain: number }[];
   months: { year_month: number; rank: number; fan_count: number; monthly_fan_gain: number }[];
   series: {
@@ -222,10 +228,38 @@ export function Club() {
               </Link>
             </li>
           ))}
+
+          {/* On the roster, no counted day yet — joined after the last ingest,
+              or still inside their split join day. (D037) */}
+          {(data.pending ?? []).map((row) => (
+            <li key={row.friend_viewer_id}>
+              <Link
+                to={`/m/${row.friend_viewer_id}`}
+                className="grid grid-cols-[2.5rem_1fr_5.5rem_5rem] items-center gap-2 border-b border-cream-200 px-3 py-2 last:border-0 hover:bg-cream-100 sm:grid-cols-[2.5rem_1fr_6rem_6rem_5rem]"
+              >
+                <span className="text-center text-sm text-ink-400">—</span>
+
+                <span className="min-w-0 truncate font-semibold text-ink-500">{row.name}</span>
+
+                <span className="col-span-2 text-right text-sm text-ink-500 sm:col-span-3">
+                  {row.joined_ymd ? `joined ${dayLabel(row.joined_ymd)}` : "just joined"}
+                </span>
+              </Link>
+            </li>
+          ))}
         </ul>
       </div>
     </div>
   );
+}
+
+/** "5 Sep" from a YYYYMMDD integer. */
+function dayLabel(ymd: number): string {
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${ymd % 100} ${months[(Math.floor(ymd / 100) % 100) - 1] ?? "?"}`;
 }
 
 function monthLabel(yearMonth: number): string {

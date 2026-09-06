@@ -176,6 +176,29 @@ async function getClub(env: Env, circleId: number, month: string | null) {
     .bind(circleId, ymd)
     .all();
 
+  // On the roster but with no counted day yet: someone who joined after the
+  // last ingest, or whose only days so far are pre-stint and the split join
+  // day (D035, D036). They are really in the club, so listing only the rows
+  // above makes the table disagree with the club's own member count. (D037)
+  const { results: pending } = await env.DB.prepare(
+    `SELECT r.friend_viewer_id, m.name, m.leader_chara_id, m.leader_chara_dress_id,
+            m.last_login_time,
+            (SELECT MIN(s.start_ymd) FROM club_stint s
+              WHERE s.friend_viewer_id = r.friend_viewer_id
+                AND s.circle_id = r.circle_id AND s.end_ymd IS NULL) AS joined_ymd
+       FROM club_roster r
+       JOIN members m ON m.friend_viewer_id = r.friend_viewer_id
+      WHERE r.circle_id = ? AND r.ymd = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM member_day md
+           WHERE md.friend_viewer_id = r.friend_viewer_id
+             AND md.ymd = r.ymd AND md.circle_id = r.circle_id
+        )
+      ORDER BY m.name`,
+  )
+    .bind(circleId, ymd)
+    .all();
+
   const club = await env.DB.prepare(
     "SELECT * FROM clubs WHERE circle_id = ?",
   )
@@ -213,7 +236,7 @@ async function getClub(env: Env, circleId: number, month: string | null) {
     .bind(circleId, yearMonth * 100, yearMonth * 100 + 31, circleId, ymd)
     .all();
 
-  return { ymd, club, leaderboard, history, months, series };
+  return { ymd, club, leaderboard, pending, history, months, series };
 }
 
 async function lastDayOfMonth(env: Env, circleId: number, yearMonth: number): Promise<number> {

@@ -33,6 +33,17 @@ export interface LeaderboardRow {
   last_login_time: string | null;
 }
 
+/** On the club's roster but with no counted day yet. See D037. */
+export interface PendingRow {
+  friend_viewer_id: number;
+  name: string;
+  leader_chara_id: number | null;
+  leader_chara_dress_id: number | null;
+  last_login_time: string | null;
+  /** Day their current stint here began, when we know it. */
+  joined_ymd: number | null;
+}
+
 export interface MemberDay {
   ymd: number;
   circle_id: number;

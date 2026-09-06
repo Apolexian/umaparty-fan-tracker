@@ -44,6 +44,9 @@ with D1 for history. Not Pages — Pages cannot run Cron Triggers (D011).
 - **The join day is dropped too** — it is split between both clubs. Only when
   `club_stint` gives a real join date; the leading-zeros heuristic is not one,
   and dropping a day on it deletes real history. (D036)
+- **Chrono's roster is live; `member_day` is a daily snapshot.** Someone who
+  joins after the ingest is on the roster with no row, so the club page lists
+  them separately rather than hiding them. (D037)
 
 ## API
 
