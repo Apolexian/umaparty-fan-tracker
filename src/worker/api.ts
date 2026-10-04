@@ -16,7 +16,7 @@ const CACHE_CONTROL = "public, max-age=0, must-revalidate, s-maxage=3600, stale-
 // Bump when a response shape changes. The data-day in the cache key handles new
 // data, but not a deploy that adds a field to an existing day — without this,
 // entries cached before the deploy keep being served for up to an hour.
-const CACHE_VERSION = 6;
+const CACHE_VERSION = 7;
 
 export async function handleApi(
   request: Request,
@@ -401,6 +401,26 @@ async function getStandings(env: Env) {
     pins,
   );
 
+  // On a roster with no counted day, same as the club page (D037). After a
+  // reshuffle that is every mover until their day after joining lands.
+  const { results: pending } = await env.DB.prepare(
+    `SELECT r.circle_id, r.friend_viewer_id, m.name,
+            (SELECT MIN(s.start_ymd) FROM club_stint s
+              WHERE s.friend_viewer_id = r.friend_viewer_id
+                AND s.circle_id = r.circle_id AND s.end_ymd IS NULL) AS joined_ymd
+       FROM club_roster r
+       JOIN members m ON m.friend_viewer_id = r.friend_viewer_id
+      WHERE r.ymd = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM member_day md
+           WHERE md.friend_viewer_id = r.friend_viewer_id
+             AND md.ymd = r.ymd AND md.circle_id = r.circle_id
+        )
+      ORDER BY m.name`,
+  )
+    .bind(ymd)
+    .all<{ circle_id: number; friend_viewer_id: number; name: string; joined_ymd: number | null }>();
+
   // Attach the numbers the UI needs alongside each placement.
   const extra = new Map(memberRows.map((r) => [r.friend_viewer_id, r]));
   const placements = projection.placements.map((p) => ({
@@ -413,6 +433,7 @@ async function getStandings(env: Env) {
   return {
     ymd,
     placements,
+    pending,
     clubs: projection.clubs.map((c) => ({
       circleId: c.circleId,
       name: c.name,

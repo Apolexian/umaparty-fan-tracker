@@ -844,3 +844,8 @@ in the club total.
 
 This is a display decision only. It changes no metric and no projection: a
 member with no counted days has no average to rank on, and D019 still stands.
+
+**2026-10-04 — extended to the home board.** The standings response carries the
+same `pending` list. After the 3 Oct reshuffle every mover sat on their join
+day, and the board — built only from placements — dropped 33 of them from both
+their old and new clubs.

@@ -3,12 +3,20 @@ import { Link, useNavigate } from "react-router-dom";
 import { Copy, Download, Image as ImageIcon, Search } from "lucide-react";
 
 import { useApi, type ClubSummary, type Placement, type SearchHit } from "../lib/api.ts";
-import { compactFans, fullFans, todayDayMonth, ymdLong } from "../lib/format.ts";
+import { compactFans, fullFans, todayDayMonth, ymdLabel, ymdLong } from "../lib/format.ts";
 import { Button, ClubChip, Delta, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
+
+interface StandingsPending {
+  circle_id: number;
+  friend_viewer_id: number;
+  name: string;
+  joined_ymd: number | null;
+}
 
 interface StandingsResponse {
   ymd: number;
   placements: Placement[];
+  pending: StandingsPending[];
 }
 
 /** The tracking sheet, on one screen, clickable. */
@@ -117,6 +125,16 @@ export function Home() {
     return map;
   }, [standings.data]);
 
+  const pendingByClub = useMemo(() => {
+    const map = new Map<number, StandingsPending[]>();
+    for (const row of standings.data?.pending ?? []) {
+      const list = map.get(row.circle_id);
+      if (list) list.push(row);
+      else map.set(row.circle_id, [row]);
+    }
+    return map;
+  }, [standings.data]);
+
   const loading = clubs.loading || standings.loading;
   const error = clubs.error ?? standings.error;
 
@@ -179,6 +197,7 @@ export function Home() {
                   key={club.circle_id}
                   club={club}
                   members={byClub.get(club.circle_id) ?? []}
+                  pending={pendingByClub.get(club.circle_id) ?? []}
                 />
               ))}
             </div>
@@ -208,7 +227,15 @@ function BoardFans({ value }: { value: number }) {
   );
 }
 
-function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[] }) {
+function ClubColumn({
+  club,
+  members,
+  pending,
+}: {
+  club: ClubSummary;
+  members: Placement[];
+  pending: StandingsPending[];
+}) {
   const clubTotal = members.reduce((sum, m) => sum + m.mtdAvg, 0);
 
   return (
@@ -262,13 +289,28 @@ function ClubColumn({ club, members }: { club: ClubSummary; members: Placement[]
             </Link>
           </li>
         ))}
-        {members.length === 0 && (
+        {/* On the roster, no counted day yet. (D037) */}
+        {pending.map((row) => (
+          <li key={row.friend_viewer_id}>
+            <Link
+              to={`/m/${row.friend_viewer_id}`}
+              className={`grid ${BOARD_COLS} items-center gap-1 border-b border-cream-200 px-2 py-1 last:border-0 hover:bg-teal-50`}
+            >
+              <span className="text-center text-sm text-ink-400">—</span>
+              <span className="truncate text-sm font-semibold text-ink-500">{row.name}</span>
+              <span className="col-span-2 text-right text-xs text-ink-500">
+                {row.joined_ymd ? `joined ${ymdLabel(row.joined_ymd)}` : "just joined"}
+              </span>
+            </Link>
+          </li>
+        ))}
+        {members.length === 0 && pending.length === 0 && (
           <li className="px-3 py-6 text-center text-xs text-ink-400">no data yet</li>
         )}
       </ul>
 
       <div className="flex items-center gap-2 border-t-2 border-cream-300 bg-cream-100 px-3 py-1.5 text-[11px] text-ink-500">
-        <span>{members.length} members</span>
+        <span>{members.length + pending.length} members</span>
         <span className="tnum ml-auto font-bold text-ink-700" title={fullFans(clubTotal)}>
           <span className="lg:hidden">{compactFans(clubTotal)}</span>
           <span className="hidden lg:inline">{fullFans(clubTotal)}</span>
