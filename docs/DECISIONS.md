@@ -849,3 +849,23 @@ member with no counted days has no average to rank on, and D019 still stands.
 same `pending` list. After the 3 Oct reshuffle every mover sat on their join
 day, and the board — built only from placements — dropped 33 of them from both
 their old and new clubs.
+
+---
+
+## D038 — The site's day is the newest day every club has <a id="d038"></a>
+**2026-10-24 · reported in Discord · ACTIVE**
+
+**Refines [D024](#d024).** D024 resolved "the current day" as `MAX(ymd)` over all
+of `member_day`. Chrono does not land every club at once: on 23 Oct four clubs
+had the 23rd by the 15:15 run and UmaFourty did not until that night. Its rows
+and its `club_roster` were stored under the 22nd, so every query pinned to the
+23rd found nothing — the club page and home board rendered "no data yet", and
+its members would have been absent from the reshuffle.
+
+The day is now the minimum over active clubs of each club's newest `member_day`
+(`latestDataYmd`). The slowest club sets the day, so the site goes a day stale
+for everyone instead of blank for one club, and standings always rank the same
+day across clubs. It catches up on the first ingest after the late club lands.
+
+Clubs with no rows at all are ignored, so a newly added club does not pin the
+site to day 0; deactivated clubs (D031) are ignored too.

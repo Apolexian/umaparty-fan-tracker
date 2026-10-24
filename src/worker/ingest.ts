@@ -643,16 +643,27 @@ async function backfillPreviousMonth(
 }
 
 /**
- * The most recent day we actually hold member data for.
+ * The newest day every active club has member data for.
  *
  * This is NOT today's date: chrono publishes a day in arrears, so on the 7th
  * the newest data is for the 6th. Ranking by wall-clock date silently updates
- * an empty day and leaves `rank_overall` null.
+ * an empty day and leaves `rank_overall` null. (D024)
+ *
+ * Nor is it the newest day any club has: chrono lands clubs at different
+ * times, and a club that is a day behind has no rows, and no roster, on the
+ * newest day, so its whole column rendered empty and its members dropped out
+ * of the reshuffle. The slowest club sets the day. (D038)
  */
 export async function latestDataYmd(env: Env): Promise<number> {
-  const row = await env.DB.prepare("SELECT MAX(ymd) AS ymd FROM member_day").first<{
-    ymd: number | null;
-  }>();
+  const row = await env.DB.prepare(
+    `SELECT MIN(newest) AS ymd FROM (
+       SELECT MAX(md.ymd) AS newest
+         FROM member_day md
+         JOIN clubs c ON c.circle_id = md.circle_id
+        WHERE c.is_active = 1
+        GROUP BY md.circle_id
+     )`,
+  ).first<{ ymd: number | null }>();
   return row?.ymd ?? 0;
 }
 

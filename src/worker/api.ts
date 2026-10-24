@@ -4,6 +4,7 @@
 // arrive in bursts from a Discord link, and the whole site is five or six
 // queries — this keeps D1 reads near zero on the free tier.
 
+import { latestDataYmd } from "./ingest.ts";
 import { buildPins, projectPromotion, type PromotionClub } from "./promotion.ts";
 import type { Env } from "./types.ts";
 
@@ -16,7 +17,7 @@ const CACHE_CONTROL = "public, max-age=0, must-revalidate, s-maxage=3600, stale-
 // Bump when a response shape changes. The data-day in the cache key handles new
 // data, but not a deploy that adds a field to an existing day — without this,
 // entries cached before the deploy keep being served for up to an hour.
-const CACHE_VERSION = 7;
+const CACHE_VERSION = 8;
 
 export async function handleApi(
   request: Request,
@@ -108,13 +109,8 @@ async function route(path: string, url: URL, env: Env): Promise<Response> {
   }
 }
 
-/** The most recent day we have any member data for. */
-async function latestDay(env: Env): Promise<number> {
-  const row = await env.DB.prepare("SELECT MAX(ymd) AS ymd FROM member_day").first<{
-    ymd: number | null;
-  }>();
-  return row?.ymd ?? 0;
-}
+/** The newest day every active club has member data for (D038). */
+const latestDay = latestDataYmd;
 
 async function getClubs(env: Env) {
   const ymd = await latestDay(env);
