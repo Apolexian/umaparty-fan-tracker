@@ -869,3 +869,176 @@ day across clubs. It catches up on the first ingest after the late club lands.
 
 Clubs with no rows at all are ignored, so a newly added club does not pin the
 site to day 0; deactivated clubs (D031) are ignored too.
+
+---
+
+## D039 — Clubs are ordered by fans per day, on an officer's Save <a id="d039"></a>
+**2026-11-24 · requested by officers · ACTIVE**
+**Extends [D020](#d020).**
+
+D020 made the running order officer-editable data but gave officers no way to
+edit it, so it stayed at the seed: カック・サドル above UmaPaThree and UmaPark
+below UmaFourty, although both pairs were the other way round on any measure.
+On 22 Nov: カック・サドル 144M fans/day (chrono rank 433) vs UmaPaThree 133M
+(545); UmaPark 52M (1222) vs UmaFourty 25M (2250).
+
+- **The measure is the club's own daily fan gain, averaged over the month so
+  far** — `club_day.fan_gain`, chrono's figure, not a sum of our member rows
+  (D034: when chrono states a fact, store the fact). Chrono's club rank is shown
+  beside it as a cross-check; the two agreed on every club when this shipped.
+- **Officers press "Sort by fans/day" and then Save.** The order is never
+  re-sorted automatically. It decides where every member is projected, so a
+  club edging past another on one good day must not silently reshuffle the
+  whole proposal. Manual up/down is there for when officers know better.
+- **A save renumbers every club 1..n in one batch.** Placement finds "the club
+  above" as `slotOrder - 1`, so a gap or a duplicate would break the cascade.
+- **Club tints follow the slot, not the club** — the colour means "tier".
+
+The public API's cache key now also carries the newest `audit_log` id, so a
+reorder (or a lock, D021) reaches the public standings at once instead of after
+the hour-long edge cache.
+
+---
+
+## D040 — A plan can start from chrono's current clubs; rebuilds are atomic <a id="d040"></a>
+**2026-11-24 · requested by officers · ACTIVE**
+**Extends [D022](#d022).**
+
+"Redo projection" resets a plan to what the algorithm proposes. Officers also
+need to reset it to **what is true now**: after the in-game reshuffle, to line
+the plan up with reality and see who has and has not moved; or to throw away a
+round of mistaken drags without the projection reshuffling everyone again.
+
+- **"Match chrono"** rebuilds the plan from `club_roster` for the site's day
+  (D034, D038): every member in the club chrono has them in, ordered by rank.
+  Locks are not applied — this is the current state, not a proposal. "Fill
+  clubs" afterwards applies them as usual.
+- `roster_plans.baseline` records which of the two a plan was built from, so
+  the editor can say so. `projected_circle_id` holds the baseline's club either
+  way, which keeps "moved by hand" meaning "moved from where the plan started".
+- Like Redo, it discards every hand edit, and asks first when there are any.
+
+**Both rebuilds now run as one D1 batch** (one transaction). Redo was four
+separate statements — delete plan, delete orphaned entries, insert plan, insert
+entries — reading the new plan id back in between. Interrupted between the last
+two (observed locally on 2026-11-24 when a dev-server reload landed mid-click),
+it left an empty plan beside 177 entries pointing at a deleted one, and the
+editor showed nothing. Entries now find their plan by `year_month`, which is
+unique, and the same transaction sweeps any orphans an earlier run left behind.
+
+Placement inputs and the plan's averages also now read the site's day
+(`latestDataYmd`, D038) instead of `MAX(ymd)`, which on a day one club landed
+late dropped that club's members from a freshly built plan.
+
+---
+
+## D041 — Finalising generates each club's kick and invite list <a id="d041"></a>
+**2026-11-24 · requested by officers · ACTIVE**
+**Extends [D022](#d022).**
+
+A finalised plan used to be only a record. Officers still had to work out by
+eye, club by club, who had to leave and who had to be invited — and the
+reshuffle is executed by different officers in different clubs.
+
+Finalise now diffs the plan against chrono's roster for the site's day
+(`club_roster`, D034, D038) and stores the result as `roster_plans.report_json`:
+
+- **Per club, a Kick list and an Invite list,** each with name and trainer ID.
+  A move A → B is a kick in A and an invite in B; someone in none of our clubs
+  (added by hand, D030) is an invite only. Each club's list copies as plain
+  text for pasting to that club's officer.
+- **Stored, not recomputed.** It is the instruction list officers were handed,
+  so it must not shrink or shift as chrono's roster changes underneath it.
+  "Finalise again" regenerates it, after a confirm.
+- **It is a checklist.** Officers tick each line as they do it; ticks are
+  stored in `roster_report_checks`, so every officer sees the same progress,
+  and a rebuilt plan drops them. A line also ticks itself once chrono shows the
+  member out of (kick) or in (invite) the club — that one cannot be unticked,
+  and lags the game by up to a day.
+- **It replaces the "x of y are not where the plan puts them" banner** and the
+  red off-plan cards. Before the reshuffle every planned move read as an error,
+  and after it the checklist says the same thing as a to-do list.
+- **Never a kick for an unfinished decision.** Members the plan leaves
+  unplaced, and members on chrono's roster missing from the plan (joined after
+  it was built), are listed separately with no action. An incomplete plan must
+  not tell anyone to remove a member.
+
+The editor's "chrono has them in" column now also reads `club_roster` instead
+of `member_day.circle_id`, which stays stale for anyone who left (D034).
+
+---
+
+## D042 — "Leaving club" is a decided kick; removal only happens from there <a id="d042"></a>
+**2026-11-24 · requested by officers · ACTIVE**
+**Extends [D022](#d022), [D041](#d041).**
+
+The roster editor had one place for members without a club, "Unplaced", which
+means *not decided yet*. Officers also need *decided: this person goes* — and a
+way to take someone out of the plan altogether, which must not be one slip of a
+drag away for a member who is staying.
+
+- **A "Leaving club" column** next to Unplaced. `roster_plan_entries.leaving =
+  1`, with `circle_id` NULL. Dropping someone there is the whole action;
+  dragging them out undoes it.
+- **Leavers are kicks** in the finalise checklist (D041), with "→ leaving" as
+  their destination. Unplaced members still are not — the report only turns
+  decisions into instructions.
+- **"Fill clubs" leaves them out entirely** — not seated, not locked, not
+  rewritten — or a fill would quietly put them back in a club.
+- **Remove from plan is only offered in Leaving, behind a second click, and the
+  server refuses it for anyone not in Leaving.** So deleting a staying member
+  takes two separate deliberate steps. A removed member who is still on chrono's
+  roster shows in the report as "in a club but not in the plan", which is the
+  honest description of that state.
+- A leaver's card shows the remove button instead of a padlock; locking someone
+  who is leaving means nothing.
+
+---
+
+## D043 — Officers can give an added member a fans/day estimate <a id="d043"></a>
+**2026-11-24 · requested by officers · ACTIVE**
+**Extends [D029](#d029), [D030](#d030).**
+
+Chrono only serves our own clubs, so a recruit added by trainer ID (D030) has
+no data until they join one and the ingest runs. Until then "Fill clubs" dealt
+them `mtdAvg = 0` — always last, so always into the bottom club — when the
+officers adding them usually know roughly what they do.
+
+- **An optional fans/day on Add member**, and on any card chrono has no data
+  for (click the "—"). Typed as officers say it: `12.5M`, `800k`, `12,500,000`.
+- **Stored on the plan entry (`roster_plan_entries.est_mtd_avg`), never in
+  `member_day`** — the ingest stays its only writer (D030), and nothing public
+  ever ranks on an officer's guess.
+- **Fill uses it in place of the 0.** It is an input to placement, not a pin:
+  the member still goes wherever that rate ranks, and can still be dragged.
+- **Chrono's figure wins as soon as there is one.** Cards show the estimate as
+  `~12.50M` in italics so it is never mistaken for chrono data.
+- Per plan: a rebuild (Redo projection / Match chrono) starts fresh, as it does
+  for every other hand edit.
+
+---
+
+## D044 — The editor cannot move a club lead; officers move freely <a id="d044"></a>
+**2026-11-24 · requested by officers · ACTIVE**
+**Extends [D027](#d027).**
+
+D027 already held each club's lead in the *projection*, but the roster editor
+still let anyone drag a lead into another club, or into Leaving.
+
+- **Chrono's role is stored per day on `club_roster.membership`** — from
+  `club_friend_profile.membership`: 1 member, 2 officer, 3 leader. It used to
+  survive only on `club_stint`, as of the day a stint started, so a handover
+  without a move never reached it. `0019` fills existing rows from the open
+  stint.
+- **A lead (3) cannot be moved:** their card does not drag, shows a "lead"
+  badge in place of the padlock, and the right-click menu greys out every
+  other destination. **The server refuses the move as well.** They cannot reach
+  Leaving, so cannot be removed from the plan either.
+- **"Fill clubs" keeps them put even over a stale hand placement.** A lead pin
+  is chrono's fact, not an officer's choice, so — unlike a lock — it also beats
+  a drag left over from before this rule (D029).
+- **Officers (2) are ordinary members here.** They were briefly held the same
+  way and that was reverted the same day: officers do move between clubs at a
+  reshuffle. Their role is still stored, but nothing acts on it.
+
+To move a lead, hand the lead over in-game; the next ingest moves the hold.

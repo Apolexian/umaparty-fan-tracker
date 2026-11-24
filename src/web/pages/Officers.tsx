@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -10,9 +10,26 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Check, Copy, LogOut, Plus, RefreshCw, RotateCcw, Undo2, Users } from "lucide-react";
+import {
+  ArrowDownWideNarrow,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  ListRestart,
+  Lock,
+  LockOpen,
+  LogOut,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Trash2,
+  Undo2,
+  Users,
+  X,
+} from "lucide-react";
 
-import { compactFans } from "../lib/format.ts";
+import { compactFans, parseFans } from "../lib/format.ts";
 import { Button, ClubChip, ErrorNote, Ribbon, Spinner } from "../components/Bits.tsx";
 
 interface Officer {
@@ -38,6 +55,12 @@ interface RosterEntry {
   mtd_avg: number | null;
   /** Where chrono has them today — the plan does not move anyone. */
   actual_circle_id: number | null;
+  /** 1 = in the Leaving column (D042): a decided kick, not an undecided unplaced. */
+  leaving: number;
+  /** Chrono's club role today: 1 member, 2 officer, 3 leader (D044). */
+  chrono_role: number | null;
+  /** An officer's fans/day estimate, for members chrono has no data on (D043). */
+  est_mtd_avg: number | null;
 }
 
 interface RosterClub {
@@ -79,6 +102,26 @@ interface Notice {
   done_by_name: string | null;
 }
 
+/** Name search across current and past names, debounced. Needs 2+ characters. */
+function useMemberSearch(query: string): SearchHit[] {
+  const [hits, setHits] = useState<SearchHit[]>([]);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setHits([]);
+      return;
+    }
+    const id = setTimeout(() => {
+      fetch(`/api/search?q=${encodeURIComponent(query.trim())}`)
+        .then((r) => r.json() as Promise<{ results: SearchHit[] }>)
+        .then((r) => setHits(r.results));
+    }, 200);
+    return () => clearTimeout(id);
+  }, [query]);
+
+  return hits;
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/admin/${path}`, {
     ...init,
@@ -92,6 +135,8 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export function Officers() {
   const [officer, setOfficer] = useState<Officer | null>(null);
   const [checking, setChecking] = useState(true);
+  // Bumped when the club order changes, so sections showing clubs reload.
+  const [clubsRev, setClubsRev] = useState(0);
 
   useEffect(() => {
     api<{ officer: Officer }>("me")
@@ -122,9 +167,10 @@ export function Officers() {
       </header>
 
       <RefreshData />
-      <ClubLeaders />
+      <ClubLeaders key={`leads-${clubsRev}`} />
+      <ClubOrder onSaved={() => setClubsRev((n) => n + 1)} />
       <Noticeboard />
-      <RosterEditor />
+      <RosterEditor key={`roster-${clubsRev}`} />
       <DiscordNames />
       <ManageOfficers me={officer} />
       <ChangePassword onSignedOut={() => setOfficer(null)} />
@@ -586,7 +632,7 @@ function ClubLeaders() {
   const [pins, setPins] = useState<PinRow[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
   const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<SearchHit[]>([]);
+  const hits = useMemberSearch(query);
 
   const reload = useCallback(() => {
     fetch("/api/clubs")
@@ -596,19 +642,6 @@ function ClubLeaders() {
   }, []);
 
   useEffect(reload, [reload]);
-
-  useEffect(() => {
-    if (query.trim().length < 2) {
-      setHits([]);
-      return;
-    }
-    const id = setTimeout(() => {
-      fetch(`/api/search?q=${encodeURIComponent(query.trim())}`)
-        .then((r) => r.json() as Promise<{ results: SearchHit[] }>)
-        .then((r) => setHits(r.results));
-    }, 200);
-    return () => clearTimeout(id);
-  }, [query]);
 
   const leaderPin = (circleId: number) =>
     pins.find((p) => p.circle_id === circleId && p.kind === "leader");
@@ -703,6 +736,176 @@ function ClubLeaders() {
           );
         })}
       </div>
+    </section>
+  );
+}
+
+interface OrderClub {
+  circle_id: number;
+  name: string;
+  slot_order: number;
+  in_pool: number;
+  is_active: number;
+  avg_daily_gain: number | null;
+  club_rank: number | null;
+}
+
+/**
+ * The clubs' running order (D020, D039): which club is "above" which, and so
+ * where the reshuffle cascades.
+ *
+ * Officers can sort by each club's fans per day this month — chrono's own
+ * daily club gain, averaged — or arrange by hand. Nothing reorders itself: the
+ * order decides where people are projected, so it changes only on Save.
+ */
+function ClubOrder({ onSaved }: { onSaved: () => void }) {
+  const [clubs, setClubs] = useState<OrderClub[]>([]);
+  const [draft, setDraft] = useState<number[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const reload = useCallback(() => {
+    api<{ clubs: OrderClub[] }>("clubs")
+      .then((r) => {
+        setClubs(r.clubs);
+        setDraft(null);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  useEffect(reload, [reload]);
+
+  const byId = useMemo(() => new Map(clubs.map((c) => [c.circle_id, c])), [clubs]);
+  const active = useMemo(() => clubs.filter((c) => c.is_active === 1), [clubs]);
+  const order = draft ?? active.map((c) => c.circle_id);
+  const dirty = draft !== null && draft.some((id, i) => id !== active[i]?.circle_id);
+
+  const byGain = useMemo(
+    () =>
+      [...active]
+        .sort((a, b) => (b.avg_daily_gain ?? -1) - (a.avg_daily_gain ?? -1))
+        .map((c) => c.circle_id),
+    [active],
+  );
+  const matchesGain = order.every((id, i) => id === byGain[i]);
+
+  function move(index: number, delta: number) {
+    const next = [...order];
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target]!, next[index]!];
+    setDraft(next);
+    setSaved(false);
+  }
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      // Inactive clubs keep their relative order, after the active ones.
+      const inactive = clubs.filter((c) => c.is_active !== 1).map((c) => c.circle_id);
+      await api("clubs", { method: "PUT", body: JSON.stringify({ order: [...order, ...inactive] }) });
+      setSaved(true);
+      reload();
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Ribbon>Club order</Ribbon>
+        {!matchesGain && !dirty && (
+          <span className="text-xs text-coral-700">not in fans/day order</span>
+        )}
+        <div className="ml-auto flex gap-2">
+          <Button
+            tone="quiet"
+            disabled={matchesGain}
+            title="Order clubs by their average daily fan gain this month"
+            onClick={() => {
+              setDraft(byGain);
+              setSaved(false);
+            }}
+          >
+            <span className="flex items-center gap-1.5">
+              <ArrowDownWideNarrow size={13} /> Sort by fans/day
+            </span>
+          </Button>
+          {dirty && (
+            <Button tone="quiet" onClick={() => setDraft(null)}>
+              Discard
+            </Button>
+          )}
+          <Button disabled={!dirty || busy} onClick={save}>
+            {busy ? "Saving…" : "Save order"}
+          </Button>
+        </div>
+      </div>
+
+      <p className="text-sm text-ink-500">
+        Top to bottom is best to worst: the reshuffle fills the top club first. Fans/day is each
+        club's total daily gain, averaged over this month.
+        {saved && (
+          <span className="text-teal-700">
+            {" "}
+            Saved — press Fill clubs or Redo projection to re-deal the plan.
+          </span>
+        )}
+      </p>
+
+      {error && <ErrorNote message={error} />}
+
+      <ol className="card overflow-hidden">
+        {order.map((id, index) => {
+          const club = byId.get(id);
+          if (!club) return null;
+          return (
+            <li
+              key={id}
+              className="grid grid-cols-[1.5rem_1fr_auto_auto_auto] items-center gap-3 border-b border-cream-200 px-3 py-1.5 last:border-0"
+            >
+              <span className="tnum text-xs text-ink-400">{index + 1}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                {/* Tinted by its slot as it will be once saved. */}
+                <ClubChip name={club.name} slotOrder={index + 1} />
+                {club.in_pool !== 1 && (
+                  <span className="text-[11px] text-ink-400">not reshuffled</span>
+                )}
+              </span>
+              <span className="tnum text-right text-sm text-ink-700" title="Average daily fan gain this month">
+                {club.avg_daily_gain !== null ? `${compactFans(club.avg_daily_gain)}/day` : "—"}
+              </span>
+              <span className="tnum w-14 text-right text-xs text-ink-400" title="Chrono club rank">
+                {club.club_rank !== null ? `#${club.club_rank}` : ""}
+              </span>
+              <span className="flex">
+                <button
+                  title="Move up"
+                  disabled={index === 0}
+                  onClick={() => move(index, -1)}
+                  className="rounded-[6px] p-1 text-ink-500 hover:bg-cream-200 disabled:opacity-25"
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  title="Move down"
+                  disabled={index === order.length - 1}
+                  onClick={() => move(index, 1)}
+                  className="rounded-[6px] p-1 text-ink-500 hover:bg-cream-200 disabled:opacity-25"
+                >
+                  <ChevronDown size={14} />
+                </button>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }
@@ -869,16 +1072,53 @@ function RosterEditor() {
   const [entries, setEntries] = useState<RosterEntry[]>([]);
   const [clubs, setClubs] = useState<RosterClub[]>([]);
   const [status, setStatus] = useState<string>("draft");
+  const [baseline, setBaseline] = useState<string>("projection");
+  const [report, setReport] = useState<ReshuffleReport | null>(null);
+  const [checks, setChecks] = useState<ReportCheck[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ entry: RosterEntry; x: number; y: number } | null>(null);
   const [yearMonth, setYearMonth] = useState(0);
-  const [dataYmd, setDataYmd] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState<RosterEntry | null>(null);
   const [filled, setFilled] = useState<number | null>(null);
+  const [pins, setPins] = useState<PinRow[]>([]);
+
+  const reloadPins = useCallback(() => {
+    api<{ pins: PinRow[] }>("pins")
+      .then((r) => setPins(r.pins))
+      .catch((e: Error) => setError(e.message));
+  }, []);
+
+  useEffect(reloadPins, [reloadPins]);
+
+  /** viewer id → the club they are locked into. Leader pins are proposals (D027). */
+  const locks = useMemo(
+    () =>
+      new Map(pins.filter((p) => p.kind === "manual").map((p) => [p.friend_viewer_id, p.circle_id])),
+    [pins],
+  );
+
+  async function setLock(friendViewerId: number, circleId: number | null) {
+    setSaving(true);
+    try {
+      await api("pins", {
+        method: circleId === null ? "DELETE" : "POST",
+        body: JSON.stringify({ friendViewerId, circleId, kind: "manual" }),
+      });
+      reloadPins();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const reload = useCallback(() => {
     api<{
-      plan: { id: number; status: string };
+      plan: { id: number; status: string; baseline: string };
+      report: ReshuffleReport | null;
+      checks: ReportCheck[];
       entries: RosterEntry[];
       clubs: RosterClub[];
       yearMonth: number;
@@ -887,10 +1127,12 @@ function RosterEditor() {
       .then((r) => {
         setPlanId(r.plan.id);
         setStatus(r.plan.status);
+        setBaseline(r.plan.baseline);
+        setReport(r.report);
+        setChecks(r.checks);
         setEntries(r.entries);
         setClubs(r.clubs);
         setYearMonth(r.yearMonth);
-        setDataYmd(r.dataYmd);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -902,12 +1144,15 @@ function RosterEditor() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  /** Keyed by club id, plus `null` for Unplaced and `"leaving"` for Leaving. */
   const byClub = useMemo(() => {
-    const map = new Map<number | null, RosterEntry[]>();
+    const map = new Map<number | null | "leaving", RosterEntry[]>();
     for (const club of clubs) map.set(club.circle_id, []);
     map.set(null, []);
+    map.set("leaving", []);
     for (const entry of entries) {
-      const list = map.get(entry.circle_id) ?? map.get(null)!;
+      const list =
+        entry.leaving === 1 ? map.get("leaving")! : (map.get(entry.circle_id) ?? map.get(null)!);
       list.push(entry);
     }
     for (const list of map.values()) list.sort((a, b) => a.position - b.position);
@@ -922,51 +1167,46 @@ function RosterEditor() {
     [clubs],
   );
 
-  /**
-   * A finalised plan is only a record of intent — the reshuffle is executed by
-   * hand in-game and nothing here writes back to chrono. Once the month it
-   * covers has started, chrono is the evidence of what actually happened, so
-   * the two are compared and any divergence is flagged.
-   *
-   * Only after the 1st: before then everyone is still in last month's club and
-   * every planned move would read as a mismatch.
-   */
-  const monthStarted = status === "final" && dataYmd >= yearMonth * 100 + 1;
-  const offPlan = useMemo(
-    () =>
-      monthStarted
-        ? entries.filter((e) => e.actual_circle_id !== e.circle_id)
-        : [],
-    [monthStarted, entries],
-  );
-  const offPlanIds = useMemo(
-    () => new Set(offPlan.map((e) => e.friend_viewer_id)),
-    [offPlan],
-  );
-
   function onDragStart(event: DragStartEvent) {
     setDragging(entries.find((e) => e.friend_viewer_id === Number(event.active.id)) ?? null);
   }
 
-  async function onDragEnd(event: DragEndEvent) {
+  function onDragEnd(event: DragEndEvent) {
     setDragging(null);
-    const memberId = Number(event.active.id);
     const overId = event.over?.id;
     if (overId === undefined || overId === null) return;
 
-    const targetClub = String(overId).startsWith("club-")
-      ? Number(String(overId).slice(5))
-      : null;
+    // Drop zones: "club-<id>", "club-none" (Unplaced), "club-leaving" (D042).
+    const zone = String(overId).slice(5);
+    void moveEntry(
+      Number(event.active.id),
+      zone === "leaving" ? "leaving" : zone === "none" ? null : Number(zone),
+    );
+  }
+
+  /** Move one member — from a drag or the right-click menu. */
+  async function moveEntry(memberId: number, target: MoveTarget) {
+    const leaving = target === "leaving";
+    const targetClub = leaving ? null : target;
 
     const entry = entries.find((e) => e.friend_viewer_id === memberId);
-    if (!entry || entry.circle_id === targetClub) return;
+    if (!entry) return;
+    if (entry.circle_id === targetClub && (entry.leaving === 1) === leaving) return;
 
-    const next = entries.map((e) =>
-      e.friend_viewer_id === memberId
-        ? { ...e, circle_id: targetClub, source: "manual" as const }
-        : e,
+    // Chrono's club leads stay in their club (D044). The server refuses too;
+    // this just says why without a round trip.
+    if (isHeld(entry) && (leaving || targetClub !== entry.actual_circle_id)) {
+      flashNotice(`${entry.name} is a ${roleLabel(entry)} and stays in ${clubName(entry.actual_circle_id)}.`);
+      return;
+    }
+
+    setEntries((list) =>
+      list.map((e) =>
+        e.friend_viewer_id === memberId
+          ? { ...e, circle_id: targetClub, leaving: leaving ? 1 : 0, source: "manual" as const }
+          : e,
+      ),
     );
-    setEntries(next);
 
     setSaving(true);
     try {
@@ -974,12 +1214,106 @@ function RosterEditor() {
         method: "PUT",
         body: JSON.stringify({
           planId,
-          moves: [{ friendViewerId: memberId, circleId: targetClub, position: 999 }],
+          moves: [{ friendViewerId: memberId, circleId: targetClub, position: 999, leaving }],
+        }),
+      });
+    } catch (e) {
+      // A refused move is not a broken editor: say why and put them back.
+      flashNotice(e instanceof Error ? e.message : String(e));
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function flashNotice(message: string) {
+    setNotice(message);
+    setTimeout(() => setNotice((current) => (current === message ? null : current)), 4000);
+  }
+
+  /** Set or clear an officer's fans/day estimate (D043). */
+  const editEstimate = useCallback(
+    async (entry: RosterEntry) => {
+      const current = entry.est_mtd_avg !== null ? compactFans(entry.est_mtd_avg) : "";
+      const answer = prompt(
+        `Fans/day for ${entry.name} — e.g. 12.5M or 800k. Leave empty to clear.`,
+        current,
+      );
+      if (answer === null) return;
+      const est = parseFans(answer);
+      if (est === undefined) {
+        alert("Not understood — try 12.5M, 800k or 12500000.");
+        return;
+      }
+      setEntries((list) =>
+        list.map((e) => (e.friend_viewer_id === entry.friend_viewer_id ? { ...e, est_mtd_avg: est } : e)),
+      );
+      try {
+        await api("roster", {
+          method: "POST",
+          body: JSON.stringify({ action: "estimate", friendViewerId: entry.friend_viewer_id, estMtdAvg: est }),
+        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        reload();
+      }
+    },
+    [reload],
+  );
+
+  /** Remove a leaver from the plan. The server refuses anyone not in Leaving. */
+  async function removeFromPlan(friendViewerId: number) {
+    setSaving(true);
+    try {
+      await api("roster", { method: "POST", body: JSON.stringify({ action: "remove", friendViewerId }) });
+      setEntries((current) => current.filter((e) => e.friend_viewer_id !== friendViewerId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** Tick a checklist line. Optimistic; reverts by reloading if the save fails. */
+  async function toggleCheck(line: Omit<ReportCheck, "checked_by_name">, checked: boolean) {
+    const same = (c: ReportCheck) =>
+      c.friend_viewer_id === line.friend_viewer_id &&
+      c.circle_id === line.circle_id &&
+      c.kind === line.kind;
+    setChecks((current) =>
+      checked
+        ? [...current.filter((c) => !same(c)), { ...line, checked_by_name: null }]
+        : current.filter((c) => !same(c)),
+    );
+    try {
+      await api("roster", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "check",
+          friendViewerId: line.friend_viewer_id,
+          circleId: line.circle_id,
+          kind: line.kind,
+          checked,
         }),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       reload();
+    }
+  }
+
+  /** Rebuild the whole plan. Confirms first only when it would discard hand edits. */
+  async function rebuild(action: "reset" | "chrono", question: string) {
+    if (saving) return; // a second click while the first is running
+    if (changed > 0 && !confirm(question)) return;
+    setSaving(true);
+    try {
+      await api("roster", { method: "POST", body: JSON.stringify({ action }) });
+      setFilled(null);
+      reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -998,9 +1332,11 @@ function RosterEditor() {
           </span>
         )}
         <span className="text-xs text-ink-400">
-          {changed > 0 ? `${changed} moved by hand` : "straight from the projection"}
+          {baseline === "chrono" ? "built from chrono's current clubs" : "built from the projection"}
+          {changed > 0 && ` · ${changed} moved by hand`}
         </span>
         {saving && <span className="text-xs text-teal-700">saving…</span>}
+        {notice && <span className="text-xs font-semibold text-coral-700">{notice}</span>}
         {filled !== null && !saving && (
           <span className="text-xs text-ink-400">
             {filled === 0 ? "already full" : `filled ${filled}`}
@@ -1034,67 +1370,73 @@ function RosterEditor() {
           <Button
             tone="quiet"
             title="Rebuild the plan from today's numbers, discarding every hand edit"
-            onClick={async () => {
-              if (
-                changed > 0 &&
-                !confirm(`Rebuild the plan? ${changed} hand-placed members will be reset.`)
-              ) {
-                return;
-              }
-              await api("roster", { method: "POST", body: JSON.stringify({ action: "reset" }) });
-              reload();
-            }}
+            onClick={() =>
+              rebuild(
+                "reset",
+                `Rebuild the plan from the projection? ${changed} hand-placed members will be reset.`,
+              )
+            }
           >
             <span className="flex items-center gap-1.5">
               <RotateCcw size={13} /> Redo projection
             </span>
           </Button>
           <Button
+            tone="quiet"
+            title="Put everyone back in the club chrono has them in today, discarding every hand edit"
+            onClick={() =>
+              rebuild(
+                "chrono",
+                `Reset the plan to chrono's current clubs? ${changed} hand-placed members will be reset.`,
+              )
+            }
+          >
+            <span className="flex items-center gap-1.5">
+              <ListRestart size={13} /> Match chrono
+            </span>
+          </Button>
+          <Button
+            title="Record the plan and generate each club's kick/invite list"
             onClick={async () => {
-              await api("roster", { method: "POST", body: JSON.stringify({ action: "finalise" }) });
-              reload();
+              if (
+                status === "final" &&
+                !confirm("Finalise again? The kick/invite report will be regenerated from today's chrono data.")
+              ) {
+                return;
+              }
+              setSaving(true);
+              try {
+                await api("roster", { method: "POST", body: JSON.stringify({ action: "finalise" }) });
+                reload();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setSaving(false);
+              }
             }}
           >
-            Finalise
+            {status === "final" ? "Finalise again" : "Finalise"}
           </Button>
         </div>
       </div>
 
       <p className="text-sm text-ink-500">
-        Drag anyone into any club. Finalising records the plan — the reshuffle is still done
-        by hand in-game.
+        Drag anyone (or right click a user) into any club. Finalising records the plan and lists who each club has to
+        kick and invite — the reshuffle is still done by hand in-game.
       </p>
 
-      {monthStarted && (
-        <div
-          className={`card px-4 py-3 text-sm ${
-            offPlan.length > 0
-              ? "border-coral-300 bg-coral-100 text-coral-700"
-              : "border-teal-400 bg-teal-100 text-ink-700"
-          }`}
-        >
-          {offPlan.length === 0 ? (
-            <span className="font-semibold">
-              Chrono matches the plan — all {entries.length} in their planned club.
-            </span>
-          ) : (
-            <>
-              <div className="font-semibold">
-                {offPlan.length} of {entries.length} are not where the plan puts them.
-              </div>
-              <ul className="mt-1.5 space-y-0.5 text-xs">
-                {offPlan.map((entry) => (
-                  <li key={entry.friend_viewer_id}>
-                    <span className="font-semibold">{entry.name}</span> — planned{" "}
-                    {clubName(entry.circle_id)}, chrono has {clubName(entry.actual_circle_id)}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
+      {status === "final" && report && (
+        <ReshuffleReportView
+          report={report}
+          entries={entries}
+          yearMonth={yearMonth}
+          checks={checks}
+          onCheck={toggleCheck}
+        />
       )}
 
+      <MenuContext.Provider value={(entry, x, y) => setMenu({ entry, x, y })}>
+      <EstimateContext.Provider value={editEstimate}>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {clubs.map((club) => (
@@ -1102,19 +1444,458 @@ function RosterEditor() {
               key={club.circle_id}
               club={club}
               entries={byClub.get(club.circle_id) ?? []}
-              offPlanIds={offPlanIds}
+              locks={locks}
+              clubName={clubName}
+              onLock={setLock}
             />
           ))}
-          <ClubColumn club={null} entries={byClub.get(null) ?? []} offPlanIds={offPlanIds} />
+          <ClubColumn
+            club={null}
+            entries={byClub.get(null) ?? []}
+            locks={locks}
+            clubName={clubName}
+            onLock={setLock}
+          />
+          <ClubColumn
+            club="leaving"
+            entries={byClub.get("leaving") ?? []}
+            locks={locks}
+            clubName={clubName}
+            onLock={setLock}
+            onRemove={removeFromPlan}
+          />
         </div>
 
         {/* Follows the cursor across columns; without it the card stays clipped
             inside its own scrolling column. */}
-        <DragOverlay>{dragging ? <MemberChip entry={dragging} /> : null}</DragOverlay>
+        <DragOverlay>
+          {dragging ? (
+            <MemberChip entry={dragging} lockedTo={locks.get(dragging.friend_viewer_id)} />
+          ) : null}
+        </DragOverlay>
       </DndContext>
+      </EstimateContext.Provider>
+      </MenuContext.Provider>
+
+      {menu && (
+        <RosterMenu
+          entry={entries.find((e) => e.friend_viewer_id === menu.entry.friend_viewer_id) ?? menu.entry}
+          x={menu.x}
+          y={menu.y}
+          clubs={clubs}
+          lockedTo={locks.get(menu.entry.friend_viewer_id)}
+          clubName={clubName}
+          onMove={(target) => void moveEntry(menu.entry.friend_viewer_id, target)}
+          onLock={(circleId) => void setLock(menu.entry.friend_viewer_id, circleId)}
+          onEstimate={() => void editEstimate(menu.entry)}
+          onRemove={() => void removeFromPlan(menu.entry.friend_viewer_id)}
+          onClose={() => setMenu(null)}
+        />
+      )}
 
       <AddMember clubs={clubs} onAdded={reload} />
+
+      <LockedMembers clubs={clubs} pins={pins} entries={entries} onLock={setLock} />
     </section>
+  );
+}
+
+interface ReportMember {
+  friendViewerId: number;
+  name: string;
+  /** Kick: where they are going. Invite: where they are coming from. */
+  otherClub: string | null;
+}
+
+interface ReportCheck {
+  friend_viewer_id: number;
+  circle_id: number;
+  kind: "kick" | "invite";
+  checked_by_name: string | null;
+}
+
+interface ReshuffleReport {
+  generatedAt: string;
+  dataYmd: number;
+  clubs: { circleId: number; name: string; kick: ReportMember[]; invite: ReportMember[] }[];
+  unplaced: (ReportMember & { otherCircleId: number | null })[];
+  notInPlan: ReportMember[];
+}
+
+function monthLabel(yearMonth: number): string {
+  return new Date(Date.UTC(Math.floor(yearMonth / 100), (yearMonth % 100) - 1, 1)).toLocaleDateString(
+    undefined,
+    { month: "long", year: "numeric", timeZone: "UTC" },
+  );
+}
+
+/** Where a member can be moved: a club id, Unplaced (null) or Leaving. */
+type MoveTarget = number | null | "leaving";
+
+/** Chrono's club lead keeps their club through a reshuffle (D044). Officers do not. */
+function isHeld(entry: RosterEntry): boolean {
+  return entry.chrono_role === 3 && entry.actual_circle_id !== null;
+}
+
+function roleLabel(_entry: RosterEntry): string {
+  return "club lead";
+}
+
+/** One club's section as plain text, for pasting to that club's officer in Discord. */
+function clubReportText(club: ReshuffleReport["clubs"][number], yearMonth: number): string {
+  const line = (m: ReportMember, arrow: string, fallback: string) =>
+    `- ${m.name} (${m.friendViewerId}) ${arrow} ${m.otherClub ?? fallback}`;
+  const lines = [`**${club.name}** — reshuffle ${monthLabel(yearMonth)}`];
+  if (club.kick.length === 0 && club.invite.length === 0) {
+    lines.push("No changes.");
+    return lines.join("\n");
+  }
+  lines.push(`Kick (${club.kick.length}):`);
+  lines.push(...(club.kick.length ? club.kick.map((m) => line(m, "→", "leaving")) : ["- nobody"]));
+  lines.push(`Invite (${club.invite.length}):`);
+  lines.push(...(club.invite.length ? club.invite.map((m) => line(m, "←", "new")) : ["- nobody"]));
+  return lines.join("\n");
+}
+
+/**
+ * The finalised plan as instructions (D041): for each club, who to kick and
+ * who to invite, with trainer IDs. Stored at finalise time, so it stays the
+ * list officers were given; each line ticks off once chrono shows the move
+ * done, which lags the game by up to a day.
+ */
+function ReshuffleReportView({
+  report,
+  entries,
+  yearMonth,
+  checks,
+  onCheck,
+}: {
+  report: ReshuffleReport;
+  entries: RosterEntry[];
+  yearMonth: number;
+  checks: ReportCheck[];
+  onCheck: (line: Omit<ReportCheck, "checked_by_name">, checked: boolean) => void;
+}) {
+  const [copied, setCopied] = useState<number | "all" | null>(null);
+  const actual = useMemo(
+    () => new Map(entries.map((e) => [e.friend_viewer_id, e.actual_circle_id])),
+    [entries],
+  );
+  const ticked = useMemo(
+    () => new Map(checks.map((c) => [`${c.kind}:${c.circle_id}:${c.friend_viewer_id}`, c])),
+    [checks],
+  );
+
+  function copy(key: number | "all", text: string) {
+    navigator.clipboard?.writeText(text);
+    setCopied(key);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  const total = report.clubs.reduce((n, c) => n + c.kick.length + c.invite.length, 0);
+
+  return (
+    <div className="card space-y-3 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-display text-lg font-bold text-ink-900">Kick &amp; invite list</span>
+        <span className="text-xs text-ink-400">
+          generated {new Date(report.generatedAt).toLocaleString()} against chrono's{" "}
+          {String(report.dataYmd).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3")}
+        </span>
+        <Button
+          tone="quiet"
+          className="ml-auto !py-1.5 text-xs"
+          onClick={() =>
+            copy("all", report.clubs.map((c) => clubReportText(c, yearMonth)).join("\n\n"))
+          }
+        >
+          <span className="flex items-center gap-1.5">
+            {copied === "all" ? <Check size={12} /> : <Copy size={12} />} Copy all
+          </span>
+        </Button>
+      </div>
+
+      <p className="text-xs text-ink-500">
+        Tick each line as you do it — every officer sees the same ticks. Kicks first: a full club
+        cannot accept an invite. Lines chrono already shows as done tick themselves, after the
+        next daily refresh.
+      </p>
+
+      {total === 0 && (
+        <p className="text-sm font-semibold text-teal-700">Nobody moves — chrono already matches the plan.</p>
+      )}
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {report.clubs.map((club) => (
+          <div key={club.circleId} className="rounded-[10px] border border-cream-300 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-ink-900">{club.name}</span>
+              <span className="tnum text-xs text-ink-400">
+                −{club.kick.length} / +{club.invite.length}
+              </span>
+              <button
+                title="Copy this club's list"
+                onClick={() => copy(club.circleId, clubReportText(club, yearMonth))}
+                className="capsule ml-auto flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-ink-600 hover:bg-cream-200"
+              >
+                {copied === club.circleId ? <Check size={12} /> : <Copy size={12} />} Copy
+              </button>
+            </div>
+
+            {(["kick", "invite"] as const).map((kind) => (
+              <ReportList
+                key={kind}
+                title={kind === "kick" ? "Kick" : "Invite"}
+                tone={kind === "kick" ? "text-coral-700" : "text-teal-700"}
+                members={club[kind]}
+                arrow={kind === "kick" ? "→" : "←"}
+                fallback={kind === "kick" ? "leaving" : "new"}
+                byChrono={(m) =>
+                  kind === "kick"
+                    ? actual.get(m.friendViewerId) !== club.circleId
+                    : actual.get(m.friendViewerId) === club.circleId
+                }
+                tickedBy={(m) => ticked.get(`${kind}:${club.circleId}:${m.friendViewerId}`)}
+                onToggle={(m, checked) =>
+                  onCheck({ friend_viewer_id: m.friendViewerId, circle_id: club.circleId, kind }, checked)
+                }
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {(report.unplaced.length > 0 || report.notInPlan.length > 0) && (
+        <div className="space-y-1 text-xs text-ink-600">
+          {report.unplaced.length > 0 && (
+            <p>
+              <span className="font-semibold text-coral-700">
+                Unplaced, no action listed ({report.unplaced.length}):
+              </span>{" "}
+              {report.unplaced.map((m) => `${m.name} (${m.friendViewerId}, in ${m.otherClub})`).join(", ")}
+            </p>
+          )}
+          {report.notInPlan.length > 0 && (
+            <p>
+              <span className="font-semibold text-coral-700">
+                In a club but not in the plan ({report.notInPlan.length}):
+              </span>{" "}
+              {report.notInPlan.map((m) => `${m.name} (${m.friendViewerId}, in ${m.otherClub})`).join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReportList({
+  title,
+  tone,
+  members,
+  arrow,
+  fallback,
+  byChrono,
+  tickedBy,
+  onToggle,
+}: {
+  title: string;
+  tone: string;
+  members: ReportMember[];
+  arrow: string;
+  fallback: string;
+  /** Chrono already shows this move done — ticked without anyone clicking. */
+  byChrono: (m: ReportMember) => boolean;
+  tickedBy: (m: ReportMember) => ReportCheck | undefined;
+  onToggle: (m: ReportMember, checked: boolean) => void;
+}) {
+  if (members.length === 0) return null;
+  const isDone = (m: ReportMember) => byChrono(m) || tickedBy(m) !== undefined;
+  const done = members.filter(isDone).length;
+
+  return (
+    <div className="mt-2">
+      <div className={`text-[11px] font-bold uppercase tracking-wide ${tone}`}>
+        {title} {done}/{members.length}
+      </div>
+      <ul className="mt-0.5 space-y-0.5">
+        {members.map((m) => {
+          const chrono = byChrono(m);
+          const tick = tickedBy(m);
+          const finished = chrono || tick !== undefined;
+          return (
+            <li key={m.friendViewerId}>
+              <label
+                className={`flex cursor-pointer items-center gap-1.5 rounded-[6px] px-1 text-sm hover:bg-cream-100 ${
+                  finished ? "text-ink-400" : "text-ink-900"
+                }`}
+                title={
+                  chrono
+                    ? "Chrono shows this done"
+                    : tick?.checked_by_name
+                      ? `Ticked by ${tick.checked_by_name}`
+                      : undefined
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={finished}
+                  disabled={chrono}
+                  onChange={(e) => onToggle(m, e.target.checked)}
+                  className="shrink-0 accent-teal-500"
+                />
+                <span className={`min-w-0 truncate font-semibold ${finished ? "line-through" : ""}`}>
+                  {m.name}
+                </span>
+                <span className={finished ? "line-through" : ""}>
+                  <UidTag id={m.friendViewerId} />
+                </span>
+                <span className={`ml-auto shrink-0 text-[11px] text-ink-400 ${finished ? "line-through" : ""}`}>
+                  {arrow} {m.otherClub ?? fallback}
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Standing locks (D021): members held in a club by every projection and every
+ * fill, month after month, until someone unlocks them. The fix for regulars
+ * who drift out of their club on rank each reshuffle and have to be dragged
+ * back by hand.
+ *
+ * A lock does not move anyone in the current plan by itself — "Fill clubs"
+ * applies it, unless an officer has already dragged that member this month
+ * (a hand placement beats a lock, D029).
+ */
+function LockedMembers({
+  clubs,
+  pins,
+  entries,
+  onLock,
+}: {
+  clubs: RosterClub[];
+  pins: PinRow[];
+  entries: RosterEntry[];
+  onLock: (friendViewerId: number, circleId: number | null) => Promise<void>;
+}) {
+  const [adding, setAdding] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const hits = useMemberSearch(query);
+
+  const locked = pins.filter((p) => p.kind === "manual");
+  const planned = new Map(entries.map((e) => [e.friend_viewer_id, e.circle_id]));
+
+  return (
+    <div className="space-y-3 pt-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <Ribbon>Locked members</Ribbon>
+        <span className="tnum text-xs text-ink-400">{locked.length} locked</span>
+      </div>
+      <p className="text-sm text-ink-500">
+        Held in their club every month, whatever their rank, until unlocked. They still use one
+        of the club's seats. Lock from here or with the padlock on a card above, then press{" "}
+        <span className="font-semibold">Fill clubs</span> to apply it to this month's plan.
+      </p>
+
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {clubs.map((club) => {
+          const members = locked.filter((p) => p.circle_id === club.circle_id);
+          const isAdding = adding === club.circle_id;
+
+          return (
+            <div key={club.circle_id} className="card px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <ClubChip name={club.name} slotOrder={club.slot_order} />
+                <span className="tnum text-xs text-ink-400">{members.length}</span>
+                <Button
+                  tone="quiet"
+                  className="ml-auto !px-2 !py-1 text-xs"
+                  onClick={() => {
+                    setAdding(isAdding ? null : club.circle_id);
+                    setQuery("");
+                  }}
+                >
+                  {isAdding ? "Done" : "Lock someone"}
+                </Button>
+              </div>
+
+              <ul className="mt-1.5 space-y-0.5">
+                {members.map((pin) => {
+                  const elsewhere = planned.has(pin.friend_viewer_id)
+                    && planned.get(pin.friend_viewer_id) !== club.circle_id;
+                  return (
+                    <li key={pin.friend_viewer_id} className="flex items-center gap-2 text-sm">
+                      <Lock size={12} className="shrink-0 text-teal-700" />
+                      <span className="min-w-0 flex-1 truncate font-semibold text-ink-900">
+                        {pin.name ?? pin.friend_viewer_id}
+                      </span>
+                      {elsewhere && (
+                        <span
+                          className="text-[11px] text-coral-700"
+                          title="The plan has them in another club. Fill clubs moves them here, unless they were dragged by hand."
+                        >
+                          not here in plan
+                        </span>
+                      )}
+                      <button
+                        title="Unlock"
+                        onClick={() => onLock(pin.friend_viewer_id, null)}
+                        className="capsule px-1.5 py-0.5 text-ink-400 hover:bg-cream-200 hover:text-coral-700"
+                      >
+                        <X size={12} />
+                      </button>
+                    </li>
+                  );
+                })}
+                {members.length === 0 && !isAdding && (
+                  <li className="text-xs text-ink-400">nobody locked</li>
+                )}
+              </ul>
+
+              {isAdding && (
+                <div className="mt-2">
+                  <input
+                    autoFocus
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search a member"
+                    className="card w-full bg-cream-50 px-3 py-1.5 text-sm outline-none focus:border-teal-400"
+                  />
+                  <ul className="mt-1 max-h-44 overflow-y-auto">
+                    {hits.map((hit) => (
+                      <li key={hit.friend_viewer_id}>
+                        <button
+                          onClick={async () => {
+                            await onLock(hit.friend_viewer_id, club.circle_id);
+                            setQuery("");
+                          }}
+                          className="w-full rounded-[6px] px-2 py-1 text-left text-sm hover:bg-teal-50"
+                        >
+                          {hit.current_name}
+                          {hit.matchedAlias && (
+                            <span className="ml-1 text-[11px] text-ink-400">
+                              was {hit.matchedAlias}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                    {query.trim().length >= 2 && hits.length === 0 && (
+                      <li className="px-2 py-1 text-xs text-ink-400">no match</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -1129,6 +1910,7 @@ function AddMember({ clubs, onAdded }: { clubs: RosterClub[]; onAdded: () => voi
   const [uid, setUid] = useState("");
   const [name, setName] = useState("");
   const [circleId, setCircleId] = useState<string>("");
+  const [estimate, setEstimate] = useState("");
   const [needsName, setNeedsName] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1136,6 +1918,11 @@ function AddMember({ clubs, onAdded }: { clubs: RosterClub[]; onAdded: () => voi
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    const estMtdAvg = parseFans(estimate);
+    if (estMtdAvg === undefined) {
+      setError("Fans/day not understood — try 12.5M, 800k or 12500000.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -1146,12 +1933,14 @@ function AddMember({ clubs, onAdded }: { clubs: RosterClub[]; onAdded: () => voi
           friendViewerId: Number(uid),
           name: name.trim() || undefined,
           circleId: circleId === "" ? null : Number(circleId),
+          estMtdAvg,
         }),
       });
       setAdded(r.name);
       setTimeout(() => setAdded(null), 2500);
       setUid("");
       setName("");
+      setEstimate("");
       setNeedsName(false);
       onAdded();
     } catch (e) {
@@ -1191,6 +1980,14 @@ function AddMember({ clubs, onAdded }: { clubs: RosterClub[]; onAdded: () => voi
         />
       )}
 
+      <input
+        value={estimate}
+        onChange={(e) => setEstimate(e.target.value)}
+        placeholder="Fans/day (optional)"
+        title="Their fans per day, as best you know it — e.g. 12.5M. Used to place them until chrono has real data."
+        className="card tnum w-40 bg-cream-50 px-3 py-1.5 text-sm outline-none focus:border-teal-400"
+      />
+
       <select
         value={circleId}
         onChange={(e) => setCircleId(e.target.value)}
@@ -1216,27 +2013,45 @@ function AddMember({ clubs, onAdded }: { clubs: RosterClub[]; onAdded: () => voi
   );
 }
 
+/**
+ * One drop zone: a club, Unplaced (`null`, not decided yet) or Leaving
+ * (`"leaving"`, decided — kicked at the reshuffle, D042). Leaving is the only
+ * zone whose cards can be removed from the plan.
+ */
 function ClubColumn({
   club,
   entries,
-  offPlanIds,
+  locks,
+  clubName,
+  onLock,
+  onRemove,
 }: {
-  club: RosterClub | null;
+  club: RosterClub | null | "leaving";
   entries: RosterEntry[];
-  offPlanIds: Set<number>;
+  locks: Map<number, number>;
+  clubName: (circleId: number | null) => string;
+  onLock: (friendViewerId: number, circleId: number | null) => Promise<void>;
+  onRemove?: (friendViewerId: number) => Promise<void>;
 }) {
-  const id = club ? `club-${club.circle_id}` : "club-none";
+  const real = club !== null && club !== "leaving" ? club : null;
+  const id = real ? `club-${real.circle_id}` : club === "leaving" ? "club-leaving" : "club-none";
   const { setNodeRef, isOver } = useDroppable({ id });
-  const over = club ? entries.length > club.capacity : false;
+  const over = real ? entries.length > real.capacity : false;
 
   return (
     <div
       ref={setNodeRef}
-      className={`card p-2 transition-colors ${isOver ? "border-teal-400 bg-teal-50" : ""}`}
+      className={`card p-2 transition-colors ${
+        isOver ? (club === "leaving" ? "border-coral-300 bg-coral-100" : "border-teal-400 bg-teal-50") : ""
+      }`}
     >
       <div className="mb-2 flex items-center gap-2 px-1">
-        {club ? (
-          <ClubChip name={club.name} slotOrder={club.slot_order} />
+        {real ? (
+          <ClubChip name={real.name} slotOrder={real.slot_order} />
+        ) : club === "leaving" ? (
+          <span className="capsule bg-coral-100 px-2.5 py-0.5 text-xs font-semibold text-coral-700">
+            Leaving club
+          </span>
         ) : (
           <span className="capsule bg-cream-300 px-2.5 py-0.5 text-xs font-semibold text-ink-700">
             Unplaced
@@ -1244,14 +2059,20 @@ function ClubColumn({
         )}
         <span className={`tnum ml-auto text-xs ${over ? "font-bold text-coral-700" : "text-ink-400"}`}>
           {entries.length}
-          {club ? `/${club.capacity}` : ""}
+          {real ? `/${real.capacity}` : ""}
         </span>
       </div>
 
       {/* A warning, not a block: officers may knowingly overfill. */}
-      {over && (
+      {over && real && (
         <p className="mb-2 px-1 text-[11px] font-semibold text-coral-700">
-          over capacity by {entries.length - club!.capacity}
+          over capacity by {entries.length - real.capacity}
+        </p>
+      )}
+
+      {club === "leaving" && (
+        <p className="mb-2 px-1 text-[11px] text-ink-500">
+          Kicked at the reshuffle. Members can only be removed from the plan from here.
         </p>
       )}
 
@@ -1260,7 +2081,10 @@ function ClubColumn({
           <MemberCard
             key={entry.friend_viewer_id}
             entry={entry}
-            offPlan={offPlanIds.has(entry.friend_viewer_id)}
+            lockedTo={locks.get(entry.friend_viewer_id)}
+            clubName={clubName}
+            onLock={onLock}
+            onRemove={onRemove}
           />
         ))}
         {entries.length === 0 && (
@@ -1272,14 +2096,79 @@ function ClubColumn({
 }
 
 /**
+ * Remove from plan, behind a second click. Only rendered in Leaving, and the
+ * server refuses anyone not in Leaving as well.
+ */
+function RemoveButton({ onConfirm }: { onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false);
+
+  useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(id);
+  }, [armed]);
+
+  return (
+    <button
+      type="button"
+      title={armed ? "Click again to remove from the plan" : "Remove from the plan"}
+      // The card itself is a drag handle; without this the click starts a drag.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (armed) onConfirm();
+        else setArmed(true);
+      }}
+      className={`shrink-0 rounded-[6px] px-1 py-0.5 text-[11px] font-semibold ${
+        armed ? "bg-coral-700 text-white" : "text-ink-400 hover:bg-cream-50 hover:text-coral-700"
+      }`}
+    >
+      {armed ? "Remove?" : <Trash2 size={13} />}
+    </button>
+  );
+}
+
+/**
  * Draggable, not sortable: members move between clubs, and order within a club
  * carries no meaning — it is rebuilt from rank. `useSortable` would also need a
  * SortableContext wrapper it never had.
  */
-function MemberCard({ entry, offPlan }: { entry: RosterEntry; offPlan: boolean }) {
+function MemberCard({
+  entry,
+  lockedTo,
+  clubName,
+  onLock,
+  onRemove,
+}: {
+  entry: RosterEntry;
+  lockedTo: number | undefined;
+  clubName: (circleId: number | null) => string;
+  onLock: (friendViewerId: number, circleId: number | null) => Promise<void>;
+  onRemove?: (friendViewerId: number) => Promise<void>;
+}) {
+  const held = isHeld(entry);
+  const openMenu = useContext(MenuContext);
+  // Chrono's club leads cannot be dragged at all (D044).
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: entry.friend_viewer_id,
+    disabled: held,
   });
+
+  // A leaver gets the remove button instead of a padlock: locking someone who
+  // is leaving means nothing. A club lead is already held, so gets a badge
+  // saying so.
+  const action = held ? (
+    <span
+      className="capsule shrink-0 bg-cream-300 px-1.5 text-[10px] font-semibold text-ink-600"
+      title={`Chrono's ${roleLabel(entry)} — stays in ${clubName(entry.actual_circle_id)}`}
+    >
+      lead
+    </span>
+  ) : entry.leaving === 1 && onRemove ? (
+    <RemoveButton onConfirm={() => void onRemove(entry.friend_viewer_id)} />
+  ) : (
+    <LockToggle entry={entry} lockedTo={lockedTo} clubName={clubName} onLock={onLock} />
+  );
 
   return (
     <li
@@ -1287,37 +2176,270 @@ function MemberCard({ entry, offPlan }: { entry: RosterEntry; offPlan: boolean }
       {...attributes}
       {...listeners}
       style={{ opacity: isDragging ? 0.35 : 1 }}
-      className="cursor-grab active:cursor-grabbing"
+      className={held ? "cursor-default" : "cursor-grab active:cursor-grabbing"}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        openMenu?.(entry, e.clientX, e.clientY);
+      }}
     >
-      <MemberChip entry={entry} offPlan={offPlan} />
+      <MemberChip
+        entry={entry}
+        lockedTo={lockedTo}
+        lockButton={action}
+      />
     </li>
   );
 }
 
-function MemberChip({ entry, offPlan = false }: { entry: RosterEntry; offPlan?: boolean }) {
+/**
+ * Padlock on a roster card. Locks the member into the club the plan has them
+ * in now; an unplaced member has no club to lock into, so gets no button.
+ */
+function LockToggle({
+  entry,
+  lockedTo,
+  clubName,
+  onLock,
+}: {
+  entry: RosterEntry;
+  lockedTo: number | undefined;
+  clubName: (circleId: number | null) => string;
+  onLock: (friendViewerId: number, circleId: number | null) => Promise<void>;
+}) {
+  if (lockedTo === undefined && entry.circle_id === null) return null;
+
+  const locked = lockedTo !== undefined;
+  const elsewhere = locked && lockedTo !== entry.circle_id;
+
+  return (
+    <button
+      type="button"
+      title={
+        locked
+          ? `Locked to ${clubName(lockedTo)}${elsewhere ? " — not where the plan has them" : ""}. Click to unlock.`
+          : `Lock into ${clubName(entry.circle_id)} every month`
+      }
+      // The card itself is a drag handle; without this the click starts a drag.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        void onLock(entry.friend_viewer_id, locked ? null : entry.circle_id);
+      }}
+      className={`shrink-0 rounded-[6px] p-1 hover:bg-cream-50 ${
+        elsewhere
+          ? "text-coral-700"
+          : locked
+            ? "text-teal-700"
+            : "text-ink-400 opacity-0 group-hover:opacity-100 focus:opacity-100"
+      }`}
+    >
+      {locked ? <Lock size={13} /> : <LockOpen size={13} />}
+    </button>
+  );
+}
+
+function MemberChip({
+  entry,
+  lockedTo,
+  lockButton,
+}: {
+  entry: RosterEntry;
+  lockedTo?: number;
+  lockButton?: React.ReactNode;
+}) {
   const moved = entry.source === "manual" && entry.circle_id !== entry.projected_circle_id;
 
   return (
     <span
-      className={`capsule flex items-center gap-2 px-3 py-1.5 text-sm ${
-        offPlan ? "bg-coral-100 ring-1 ring-coral-300" : moved ? "bg-lav-200" : "bg-cream-200"
+      className={`group capsule flex items-center gap-2 px-3 py-1.5 text-sm ${
+        moved ? "bg-lav-200" : "bg-cream-200"
       }`}
-      title={
-        offPlan
-          ? "Chrono has them in a different club than the plan"
-          : moved
-            ? "Moved by hand from the projection"
-            : undefined
-      }
+      title={moved ? "Moved by hand from where the plan started" : undefined}
     >
       <span className="min-w-0 flex-1">
         <span className="block truncate font-semibold text-ink-900">{entry.name}</span>
         <UidTag id={entry.friend_viewer_id} />
       </span>
-      <span className="tnum text-xs text-ink-500">
-        {entry.mtd_avg ? compactFans(entry.mtd_avg) : "—"}
-      </span>
+      <FansValue entry={entry} />
+      {lockButton ?? (lockedTo !== undefined && <Lock size={13} className="shrink-0 text-teal-700" />)}
     </span>
+  );
+}
+
+/** Opens the right-click menu for an entry; provided by the roster editor. */
+const MenuContext = createContext<((entry: RosterEntry, x: number, y: number) => void) | null>(null);
+
+/**
+ * Right-click menu on a roster card: everything a drag does, plus the card's
+ * other actions, without needing to drag across a wide board.
+ */
+function RosterMenu({
+  entry,
+  x,
+  y,
+  clubs,
+  lockedTo,
+  clubName,
+  onMove,
+  onLock,
+  onEstimate,
+  onRemove,
+  onClose,
+}: {
+  entry: RosterEntry;
+  x: number;
+  y: number;
+  clubs: RosterClub[];
+  lockedTo: number | undefined;
+  clubName: (circleId: number | null) => string;
+  onMove: (target: MoveTarget) => void;
+  onLock: (circleId: number | null) => void;
+  onEstimate: () => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const held = isHeld(entry);
+
+  // Close on outside click, Escape, scroll or resize — anything that means
+  // the menu's position or subject is no longer what the officer is looking at.
+  useEffect(() => {
+    const close = (e: Event) => {
+      if (e instanceof MouseEvent && box?.contains(e.target as Node)) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("mousedown", close);
+    window.addEventListener("contextmenu", close, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("contextmenu", close, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [box, onClose]);
+
+  // Keep it on screen near the right and bottom edges.
+  const width = 224;
+  const height = box?.offsetHeight ?? 0;
+  const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
+
+  const here = (target: MoveTarget) =>
+    target === "leaving"
+      ? entry.leaving === 1
+      : entry.leaving !== 1 && entry.circle_id === target;
+
+  const act = (fn: () => void) => () => {
+    fn();
+    onClose();
+  };
+
+  const item = (label: React.ReactNode, onClick: () => void, opts: { disabled?: boolean; current?: boolean; danger?: boolean; title?: string } = {}) => (
+    <button
+      type="button"
+      disabled={opts.disabled}
+      title={opts.title}
+      onClick={act(onClick)}
+      className={`flex w-full items-center gap-2 rounded-[6px] px-2 py-1 text-left text-sm disabled:cursor-default disabled:opacity-40 ${
+        opts.danger ? "text-coral-700 hover:bg-coral-100" : "text-ink-900 hover:bg-teal-50"
+      }`}
+    >
+      <span className="w-3.5 shrink-0">{opts.current && <Check size={13} className="text-teal-700" />}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
+  );
+
+  const destinations: { target: MoveTarget; label: React.ReactNode }[] = [
+    ...clubs.map((c) => ({ target: c.circle_id as MoveTarget, label: c.name })),
+    { target: null, label: "Unplaced" },
+    { target: "leaving", label: <span className="text-coral-700">Leaving club</span> },
+  ];
+
+  return (
+    <div
+      ref={setBox}
+      role="menu"
+      style={{ left, top, width, visibility: box ? "visible" : "hidden" }}
+      className="card fixed z-50 p-1.5 shadow-lg"
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <div className="border-b border-cream-200 px-2 pb-1.5 pt-0.5">
+        <div className="truncate text-sm font-bold text-ink-900">{entry.name}</div>
+        <div className="tnum text-[11px] text-ink-400">{entry.friend_viewer_id}</div>
+        {held && (
+          <div className="mt-0.5 text-[11px] font-semibold text-ink-600">
+            {roleLabel(entry)} — stays in {clubName(entry.actual_circle_id)}
+          </div>
+        )}
+      </div>
+
+      <div className="py-1">
+        <div className="px-2 pb-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-400">Move to</div>
+        {destinations.map((d) =>
+          item(d.label, () => onMove(d.target), {
+            current: here(d.target),
+            disabled: here(d.target) || (held && d.target !== entry.actual_circle_id),
+          }),
+        )}
+      </div>
+
+      <div className="border-t border-cream-200 pt-1">
+        {!held && lockedTo !== undefined &&
+          item(`Unlock from ${clubName(lockedTo)}`, () => onLock(null))}
+        {!held && lockedTo === undefined && entry.circle_id !== null && entry.leaving !== 1 &&
+          item(`Lock into ${clubName(entry.circle_id)}`, () => onLock(entry.circle_id))}
+        {!entry.mtd_avg &&
+          item(entry.est_mtd_avg !== null ? "Change fans/day estimate…" : "Set fans/day estimate…", onEstimate)}
+        {item("Copy trainer ID", () => navigator.clipboard?.writeText(String(entry.friend_viewer_id)))}
+        {entry.leaving === 1 &&
+          item("Remove from plan…", () => {
+            if (confirm(`Remove ${entry.name} from this month's plan?`)) onRemove();
+          }, { danger: true })}
+      </div>
+    </div>
+  );
+}
+
+/** Opens the estimate prompt for an entry; provided by the roster editor. */
+const EstimateContext = createContext<((entry: RosterEntry) => void) | null>(null);
+
+/**
+ * A card's fans/day. Chrono's figure when there is one; otherwise the
+ * officer's estimate shown as "~12.50M" (D043), clickable to set or change.
+ */
+function FansValue({ entry }: { entry: RosterEntry }) {
+  const editEstimate = useContext(EstimateContext);
+
+  if (entry.mtd_avg) {
+    return <span className="tnum text-xs text-ink-500">{compactFans(entry.mtd_avg)}</span>;
+  }
+
+  const label = entry.est_mtd_avg !== null ? `~${compactFans(entry.est_mtd_avg)}` : "—";
+  if (!editEstimate) return <span className="tnum text-xs italic text-ink-500">{label}</span>;
+
+  return (
+    <button
+      type="button"
+      title={
+        entry.est_mtd_avg !== null
+          ? "Officer's estimate — chrono has no data on them yet. Click to change."
+          : "No data from chrono. Click to enter their fans/day."
+      }
+      // The card itself is a drag handle; without this the click starts a drag.
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        editEstimate(entry);
+      }}
+      className="tnum rounded-[6px] px-1 text-xs italic text-ink-500 underline decoration-dotted underline-offset-2 hover:bg-cream-50 hover:text-ink-900"
+    >
+      {label}
+    </button>
   );
 }
 

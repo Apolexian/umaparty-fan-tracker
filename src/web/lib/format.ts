@@ -7,6 +7,19 @@ export function compactFans(value: number): string {
   return String(value);
 }
 
+/**
+ * Read a fan figure as officers type it: "12.5M", "800k", "1.2b", "12,500,000".
+ * Returns null for an empty field and undefined for anything unreadable.
+ */
+export function parseFans(input: string): number | null | undefined {
+  const text = input.trim().toLowerCase().replace(/[,_\s]/g, "");
+  if (text === "") return null;
+  const match = /^(\d+(?:\.\d+)?)([kmb]?)$/.exec(text);
+  if (!match) return undefined;
+  const scale = { "": 1, k: 1_000, m: 1_000_000, b: 1_000_000_000 }[match[2] as "" | "k" | "m" | "b"];
+  return Math.round(Number(match[1]) * scale);
+}
+
 export function fullFans(value: number): string {
   return value.toLocaleString("en-US");
 }

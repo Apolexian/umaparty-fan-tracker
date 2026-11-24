@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Copy, Download, Image as ImageIcon, Search } from "lucide-react";
 
 import { useApi, type ClubSummary, type Placement, type SearchHit } from "../lib/api.ts";
+import { renderBoardPng } from "../lib/boardImage.ts";
 import { compactFans, fullFans, todayDayMonth, ymdLabel, ymdLong } from "../lib/format.ts";
 import { Button, ClubChip, Delta, ErrorNote, RankBadge, Spinner } from "../components/Bits.tsx";
 
@@ -23,29 +24,17 @@ interface StandingsResponse {
 export function Home() {
   const clubs = useApi<{ ymd: number; clubs: ClubSummary[] }>("clubs");
   const standings = useApi<StandingsResponse>("standings");
-  const boardRef = useRef<HTMLDivElement>(null);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState<"image" | "message" | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
 
-  /**
-   * 2x so the numbers stay legible after Discord recompresses it, and an
-   * explicit background because the node itself is transparent.
-   *
-   * Width and height are passed explicitly: html-to-image sizes the capture
-   * from the node's own box, so the padding injected into the clone fell
-   * outside it and cropped the last row off -- each club's daily total. The
-   * scroll extents matter too, since the board is wider than its container.
-   */
-  function renderOptions(node: HTMLElement) {
-    const pad = 16;
-    return {
-      pixelRatio: 2,
-      backgroundColor: "#fdfaf1",
-      style: { padding: `${pad}px` },
-      width: Math.max(node.offsetWidth, node.scrollWidth) + pad * 2,
-      height: Math.max(node.offsetHeight, node.scrollHeight) + pad * 2,
-    };
+  /** The board drawn from data (see lib/boardImage.ts), not screenshotted. */
+  function renderImage(): Promise<Blob> {
+    return renderBoardPng({
+      clubs: clubs.data?.clubs ?? [],
+      members: byClub,
+      pending: pendingByClub,
+    });
   }
 
   /**
@@ -56,16 +45,18 @@ export function Home() {
    * send them the link".
    */
   async function savePng() {
-    if (!boardRef.current) return;
     setSaving(true);
+    setCopyError(null);
     try {
-      const { toPng } = await import("html-to-image");
-      const url = await toPng(boardRef.current, renderOptions(boardRef.current));
+      const url = URL.createObjectURL(await renderImage());
       const day = standings.data?.ymd ?? "";
       const link = document.createElement("a");
       link.download = `umaparty-${day}.png`;
       link.href = url;
       link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (error) {
+      setCopyError(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
@@ -75,28 +66,32 @@ export function Home() {
    * The daily post is two separate pastes: Discord takes an image or text from
    * the clipboard, never both, so image and message get a button each rather
    * than one that silently drops half.
+   *
+   * The clipboard write is started synchronously inside the click, with the
+   * image as a promise. The browser checks focus and the user gesture when the
+   * write starts, so clicking into Discord while the image renders no longer
+   * fails the copy — which it did when the write waited for the render.
    */
-  async function copyImage() {
-    if (!boardRef.current) return;
+  function copyImage() {
     setSaving(true);
     setCopyError(null);
-    try {
-      const { toBlob } = await import("html-to-image");
-      const blob = await toBlob(boardRef.current, renderOptions(boardRef.current));
-      if (!blob) throw new Error("could not render the board");
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-      flash("image");
-    } catch (error) {
-      setCopyError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSaving(false);
-    }
+    navigator.clipboard
+      .write([new ClipboardItem({ "image/png": renderImage() })])
+      .then(() => flash("image"))
+      .catch((error: unknown) => setCopyError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setSaving(false));
   }
 
-  /** Mirrors the spreadsheet formula this replaces, club order and all. */
+  /**
+   * Mirrors the spreadsheet formula this replaces, club order and all.
+   *
+   * The trailing space is deliberate: Discord only resolves an "@Club" mention
+   * into the role once something is typed after it, so without it the last
+   * club stays plain text until the poster presses Enter an extra time.
+   */
   function discordMessage(): string {
     const mentions = (clubs.data?.clubs ?? []).map((club) => `@${club.name}`).join(" ");
-    return `Daily Dose of Data ${todayDayMonth()} ${mentions}`;
+    return `Daily Dose of Data ${todayDayMonth()} ${mentions} `;
   }
 
   async function copyMessage() {
@@ -191,7 +186,7 @@ export function Home() {
           {/* Scrolls horizontally rather than reflowing: the point is seeing the
               clubs side by side, the way the sheet does. */}
           <div className="-mx-5 overflow-x-auto px-5 pb-2">
-            <div ref={boardRef} className="flex gap-3 bg-cream-100">
+            <div className="flex gap-3 bg-cream-100">
               {clubs.data.clubs.map((club) => (
                 <ClubColumn
                   key={club.circle_id}
