@@ -39,10 +39,15 @@ export async function handleApi(
   //
   // The extra lookup is MAX() on an indexed column, far cheaper than the
   // queries it saves.
+  //
+  // It also carries the newest audit_log id. Club order, capacity and locks
+  // are officer-edited and feed the public projection, and every officer
+  // change writes an audit row — so a reorder or a new lock shows at once
+  // instead of an hour later. Officer changes are rare, so the churn is too.
   const cache = caches.default;
-  const dataDay = await latestDay(env);
+  const [dataDay, officerEdit] = await Promise.all([latestDay(env), latestOfficerEdit(env)]);
   const cacheKey = new Request(
-    `${url.origin}${url.pathname}${url.search}${url.search ? "&" : "?"}__d=${dataDay}&__v=${CACHE_VERSION}`,
+    `${url.origin}${url.pathname}${url.search}${url.search ? "&" : "?"}__d=${dataDay}&__o=${officerEdit}&__v=${CACHE_VERSION}`,
     { method: "GET" },
   );
 
@@ -111,6 +116,11 @@ async function route(path: string, url: URL, env: Env): Promise<Response> {
 
 /** The newest day every active club has member data for (D038). */
 const latestDay = latestDataYmd;
+
+async function latestOfficerEdit(env: Env): Promise<number> {
+  const row = await env.DB.prepare("SELECT MAX(id) AS id FROM audit_log").first<{ id: number | null }>();
+  return row?.id ?? 0;
+}
 
 async function getClubs(env: Env) {
   const ymd = await latestDay(env);

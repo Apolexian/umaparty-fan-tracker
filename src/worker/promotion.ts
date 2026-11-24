@@ -28,6 +28,10 @@ export interface PromotionClub {
 }
 
 /** Why a member is being held in a club regardless of their rank. */
+/**
+ * leader — chrono's club lead (D027)
+ * manual — locked by officers on the site (D021)
+ */
 export type PinKind = "leader" | "manual";
 
 /**

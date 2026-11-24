@@ -150,12 +150,16 @@ async function pins(request: Request, env: Env, officer: Officer): Promise<Respo
     if (!body?.friendViewerId || !body?.circleId) {
       return json({ error: "friendViewerId and circleId required" }, 400);
     }
+    const kind = body.kind === "leader" ? "leader" : "manual";
 
-    // A member can only be pinned to one club; replace rather than stack.
+    // A member can only be pinned to one club per kind; replace rather than
+    // stack. Scoped to the kind because a lead proposal (D027) and a lock
+    // (D021) answer different questions — locking someone must not silently
+    // withdraw them as a proposed lead, and vice versa.
     await env.DB.prepare(
-      "UPDATE member_pins SET unset_at = ? WHERE friend_viewer_id = ? AND unset_at IS NULL",
+      "UPDATE member_pins SET unset_at = ? WHERE friend_viewer_id = ? AND kind = ? AND unset_at IS NULL",
     )
-      .bind(new Date().toISOString(), body.friendViewerId)
+      .bind(new Date().toISOString(), body.friendViewerId, kind)
       .run();
 
     await env.DB.prepare(
@@ -165,7 +169,7 @@ async function pins(request: Request, env: Env, officer: Officer): Promise<Respo
       .bind(
         body.circleId,
         body.friendViewerId,
-        body.kind === "leader" ? "leader" : "manual",
+        kind,
         body.reason ?? null,
         officer.id,
         new Date().toISOString(),
@@ -177,14 +181,15 @@ async function pins(request: Request, env: Env, officer: Officer): Promise<Respo
   }
 
   if (request.method === "DELETE") {
-    const body = await readJson<{ friendViewerId?: number }>(request);
+    const body = await readJson<{ friendViewerId?: number; kind?: string }>(request);
     if (!body?.friendViewerId) return json({ error: "friendViewerId required" }, 400);
+    const kind = body.kind === "leader" ? "leader" : "manual";
 
     // Kept as history so past projections stay reproducible.
     await env.DB.prepare(
-      "UPDATE member_pins SET unset_at = ? WHERE friend_viewer_id = ? AND unset_at IS NULL",
+      "UPDATE member_pins SET unset_at = ? WHERE friend_viewer_id = ? AND kind = ? AND unset_at IS NULL",
     )
-      .bind(new Date().toISOString(), body.friendViewerId)
+      .bind(new Date().toISOString(), body.friendViewerId, kind)
       .run();
 
     await audit(env, officer.id, "pin.clear", body);
@@ -198,10 +203,24 @@ async function pins(request: Request, env: Env, officer: Officer): Promise<Respo
 
 async function adminClubs(request: Request, env: Env, officer: Officer): Promise<Response> {
   if (request.method === "GET") {
+    // What officers order clubs by (D039): the club's own daily fan gain from
+    // chrono, averaged over the month so far, with chrono's club rank beside it
+    // as a cross-check. Both are chrono's facts, not sums we derive.
+    const ymd = await latestDataYmd(env);
+    const monthStart = Math.floor(ymd / 100) * 100 + 1;
     const { results } = await env.DB.prepare(
-      "SELECT circle_id, name, slot_order, capacity, in_pool, is_active FROM clubs ORDER BY slot_order",
-    ).all();
-    return json({ clubs: results });
+      `SELECT c.circle_id, c.name, c.slot_order, c.capacity, c.in_pool, c.is_active,
+              (SELECT CAST(AVG(d.fan_gain) AS INTEGER) FROM club_day d
+                WHERE d.circle_id = c.circle_id AND d.ymd BETWEEN ? AND ?) AS avg_daily_gain,
+              (SELECT d.rank FROM club_day d
+                WHERE d.circle_id = c.circle_id AND d.ymd <= ?
+                ORDER BY d.ymd DESC LIMIT 1) AS club_rank
+         FROM clubs c
+        ORDER BY c.slot_order`,
+    )
+      .bind(monthStart, ymd, ymd)
+      .all();
+    return json({ clubs: results, dataYmd: ymd });
   }
 
   // Add a club ad-hoc by circle id (D020).
@@ -228,6 +247,35 @@ async function adminClubs(request: Request, env: Env, officer: Officer): Promise
 
     await audit(env, officer.id, "club.add", body);
     // The next ingest picks it up; no deploy needed.
+    return json({ ok: true });
+  }
+
+  // A new running order (D039): every club id, top first. Renumbered 1..n in
+  // one batch, because placement finds "the club above" as slotOrder - 1 and a
+  // gap or a duplicate would break the cascade.
+  if (request.method === "PUT") {
+    const body = await readJson<{ order?: number[] }>(request);
+    const order = body?.order;
+    if (!order?.length) return json({ error: "order required" }, 400);
+
+    const { results: existing } = await env.DB.prepare("SELECT circle_id FROM clubs")
+      .all<{ circle_id: number }>();
+    const ids = new Set(existing.map((c) => c.circle_id));
+    if (
+      order.length !== ids.size ||
+      new Set(order).size !== order.length ||
+      !order.every((id) => ids.has(id))
+    ) {
+      return json({ error: "order must list every club exactly once" }, 400);
+    }
+
+    await env.DB.batch(
+      order.map((circleId, index) =>
+        env.DB.prepare("UPDATE clubs SET slot_order = ? WHERE circle_id = ?").bind(index + 1, circleId),
+      ),
+    );
+
+    await audit(env, officer.id, "club.reorder", { order });
     return json({ ok: true });
   }
 
@@ -276,68 +324,124 @@ async function roster(request: Request, env: Env, officer: Officer, url: URL): P
   const yearMonth = Number(url.searchParams.get("month")) || currentYearMonth();
 
   if (request.method === "GET") {
-    let plan = await env.DB.prepare("SELECT * FROM roster_plans WHERE year_month = ?")
-      .bind(yearMonth)
-      .first<{ id: number; status: string; note: string | null }>();
+    const findPlan = () =>
+      env.DB.prepare(
+        `SELECT id, year_month, status, note, baseline, finalised_at, report_json
+           FROM roster_plans WHERE year_month = ?`,
+      )
+        .bind(yearMonth)
+        .first<{ id: number; status: string; note: string | null; baseline: string; report_json: string | null }>();
 
+    let plan = await findPlan();
     if (!plan) {
-      const seeded = await seedPlan(env, officer, yearMonth);
-      plan = seeded;
+      await rebuildPlan(env, officer, yearMonth, "projection");
+      plan = await findPlan();
+      if (!plan) return json({ error: "could not create a plan" }, 500);
     }
+
+    const dataYmd = await latestDataYmd(env);
 
     // `actual_circle_id` is where chrono has them today, against which a
     // finalised plan is checked. Nothing here moves anyone: the reshuffle is
     // done by hand in-game, so the plan and reality can diverge silently.
+    // Read from chrono's roster, not `member_day.circle_id`, which goes stale
+    // for anyone who has left (D034).
     const { results: entries } = await env.DB.prepare(
       `SELECT e.friend_viewer_id, e.circle_id, e.position, e.source, e.projected_circle_id,
-              m.name, md.mtd_avg, md.circle_id AS actual_circle_id
+              e.leaving, e.est_mtd_avg, m.name, md.mtd_avg, r.circle_id AS actual_circle_id,
+              r.membership AS chrono_role
          FROM roster_plan_entries e
          LEFT JOIN members m ON m.friend_viewer_id = e.friend_viewer_id
          LEFT JOIN member_day md
            ON md.friend_viewer_id = e.friend_viewer_id
-          AND md.ymd = (SELECT MAX(ymd) FROM member_day)
+          AND md.ymd = ?
+         LEFT JOIN club_roster r
+           ON r.friend_viewer_id = e.friend_viewer_id
+          AND r.ymd = ?
+          AND r.circle_id IN (SELECT circle_id FROM clubs WHERE is_active = 1)
         WHERE e.plan_id = ?
         ORDER BY e.circle_id, e.position`,
     )
-      .bind(plan.id)
+      .bind(dataYmd, dataYmd, plan.id)
       .all();
 
     const { results: clubs } = await env.DB.prepare(
       "SELECT circle_id, name, slot_order, capacity, in_pool FROM clubs WHERE is_active = 1 ORDER BY slot_order",
     ).all();
 
-    const dataYmd = await latestDataYmd(env);
+    const { report_json, ...planFields } = plan;
+    const report = report_json ? (JSON.parse(report_json) as ReshuffleReport) : null;
 
-    return json({ plan, entries, clubs, yearMonth, dataYmd });
+    const { results: checks } = report
+      ? await env.DB.prepare(
+          `SELECT k.friend_viewer_id, k.circle_id, k.kind, o.display_name AS checked_by_name
+             FROM roster_report_checks k
+             LEFT JOIN officers o ON o.id = k.checked_by
+            WHERE k.plan_id = ?`,
+        )
+          .bind(plan.id)
+          .all()
+      : { results: [] };
+
+    return json({ plan: planFields, report, checks, entries, clubs, yearMonth, dataYmd });
   }
 
   // Drag-and-drop result: a full new placement for the members that moved.
   if (request.method === "PUT") {
     const body = await readJson<{
       planId?: number;
-      moves?: { friendViewerId: number; circleId: number | null; position: number }[];
+      moves?: { friendViewerId: number; circleId: number | null; position: number; leaving?: boolean }[];
     }>(request);
     if (!body?.planId || !body?.moves) return json({ error: "planId and moves required" }, 400);
 
+    // Chrono's club leads stay in their club (D044). Enforced here as well as
+    // in the editor, so no client can move one by accident. Officers move
+    // like anyone else.
+    if (body.moves.length > 0) {
+      const ids = body.moves.map((m) => m.friendViewerId);
+      const { results: held } = await env.DB.prepare(
+        `SELECT r.friend_viewer_id, r.circle_id, r.membership, COALESCE(m.name, '') AS name
+           FROM club_roster r
+           JOIN clubs c ON c.circle_id = r.circle_id AND c.is_active = 1
+           LEFT JOIN members m ON m.friend_viewer_id = r.friend_viewer_id
+          WHERE r.ymd = ? AND r.membership = 3
+            AND r.friend_viewer_id IN (${ids.map(() => "?").join(",")})`,
+      )
+        .bind(await latestDataYmd(env), ...ids)
+        .all<{ friend_viewer_id: number; circle_id: number; membership: number; name: string }>();
+
+      for (const h of held) {
+        const move = body.moves.find((m) => m.friendViewerId === h.friend_viewer_id)!;
+        if (move.leaving === true || move.circleId !== h.circle_id) {
+          return json({ error: `${h.name || h.friend_viewer_id} is a club lead and stays in their club` }, 409);
+        }
+      }
+    }
+
     const now = new Date().toISOString();
     await env.DB.batch(
-      body.moves.map((move) =>
-        env.DB.prepare(
+      body.moves.map((move) => {
+        // Leaving (D042) has no club; a member in a club is never leaving.
+        const leaving = move.leaving === true ? 1 : 0;
+        const circleId = leaving ? null : move.circleId;
+        return env.DB.prepare(
           `UPDATE roster_plan_entries
-              SET circle_id = ?, position = ?,
-                  source = CASE WHEN circle_id IS ? THEN source ELSE 'manual' END,
+              SET circle_id = ?, position = ?, leaving = ?,
+                  source = CASE WHEN circle_id IS ? AND leaving = ? THEN source ELSE 'manual' END,
                   moved_by = ?, moved_at = ?
             WHERE plan_id = ? AND friend_viewer_id = ?`,
         ).bind(
-          move.circleId,
+          circleId,
           move.position,
-          move.circleId,
+          leaving,
+          circleId,
+          leaving,
           officer.id,
           now,
           body.planId,
           move.friendViewerId,
-        ),
-      ),
+        );
+      }),
     );
 
     await audit(env, officer.id, "roster.move", { planId: body.planId, count: body.moves.length });
@@ -351,6 +455,9 @@ async function roster(request: Request, env: Env, officer: Officer, url: URL): P
       friendViewerId?: number;
       name?: string;
       circleId?: number | null;
+      kind?: string;
+      checked?: boolean;
+      estMtdAvg?: number | null;
     }>(request);
 
     if (body?.action === "fill") {
@@ -361,30 +468,235 @@ async function roster(request: Request, env: Env, officer: Officer, url: URL): P
       return await addPlanMember(env, officer, yearMonth, body);
     }
 
+    // Set or clear an officer's fans/day estimate on one entry (D043).
+    if (body?.action === "estimate") {
+      const est = parseEstimate(body.estMtdAvg);
+      if (est === undefined) return json({ error: "fans/day must be a whole number, 0 or more" }, 400);
+
+      const result = await env.DB.prepare(
+        `UPDATE roster_plan_entries SET est_mtd_avg = ?
+          WHERE plan_id = (SELECT id FROM roster_plans WHERE year_month = ?) AND friend_viewer_id = ?`,
+      )
+        .bind(est, yearMonth, Number(body.friendViewerId))
+        .run();
+      if (result.meta.changes === 0) return json({ error: "not in the plan" }, 404);
+
+      await audit(env, officer.id, "roster.estimate", { friendViewerId: body.friendViewerId, est });
+      return json({ ok: true });
+    }
+
+    // Remove someone from the plan entirely (D042). Only from Leaving: the
+    // server refuses anyone else, so a slip in a club column cannot delete a
+    // member — they have to be deliberately moved to Leaving first.
+    if (body?.action === "remove") {
+      const friendViewerId = Number(body.friendViewerId);
+      const plan = await env.DB.prepare("SELECT id FROM roster_plans WHERE year_month = ?")
+        .bind(yearMonth)
+        .first<{ id: number }>();
+      if (!plan) return json({ error: "no plan for this month" }, 404);
+
+      const entry = await env.DB.prepare(
+        "SELECT leaving FROM roster_plan_entries WHERE plan_id = ? AND friend_viewer_id = ?",
+      )
+        .bind(plan.id, friendViewerId)
+        .first<{ leaving: number }>();
+      if (!entry) return json({ error: "not in the plan" }, 404);
+      // Club leads cannot reach Leaving (D044), so this also keeps them in.
+      if (entry.leaving !== 1) {
+        return json({ error: "only members in Leaving can be removed" }, 409);
+      }
+
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM roster_plan_entries WHERE plan_id = ? AND friend_viewer_id = ?")
+          .bind(plan.id, friendViewerId),
+        env.DB.prepare("DELETE FROM roster_report_checks WHERE plan_id = ? AND friend_viewer_id = ?")
+          .bind(plan.id, friendViewerId),
+      ]);
+      await audit(env, officer.id, "roster.remove", { planId: plan.id, friendViewerId });
+      return json({ ok: true });
+    }
+
     if (body?.action === "reset") {
-      await env.DB.prepare("DELETE FROM roster_plans WHERE year_month = ?").bind(yearMonth).run();
-      await env.DB.prepare(
-        "DELETE FROM roster_plan_entries WHERE plan_id NOT IN (SELECT id FROM roster_plans)",
-      ).run();
-      await seedPlan(env, officer, yearMonth);
+      await rebuildPlan(env, officer, yearMonth, "projection");
       await audit(env, officer.id, "roster.reset", { yearMonth });
       return json({ ok: true });
     }
 
-    if (body?.action === "finalise") {
-      await env.DB.prepare(
-        "UPDATE roster_plans SET status = 'final', finalised_by = ?, finalised_at = ? WHERE year_month = ?",
-      )
-        .bind(officer.id, new Date().toISOString(), yearMonth)
-        .run();
-      await audit(env, officer.id, "roster.finalise", { yearMonth });
+    if (body?.action === "chrono") {
+      await rebuildPlan(env, officer, yearMonth, "chrono");
+      await audit(env, officer.id, "roster.match_chrono", { yearMonth });
       return json({ ok: true });
+    }
+
+    // Tick or untick one line of the kick/invite checklist (D041).
+    if (body?.action === "check") {
+      const plan = await env.DB.prepare("SELECT id FROM roster_plans WHERE year_month = ?")
+        .bind(yearMonth)
+        .first<{ id: number }>();
+      if (!plan) return json({ error: "no plan for this month" }, 404);
+
+      const friendViewerId = Number(body.friendViewerId);
+      const circleId = Number(body.circleId);
+      const kind = body.kind === "kick" || body.kind === "invite" ? body.kind : null;
+      if (!friendViewerId || !circleId || !kind) {
+        return json({ error: "friendViewerId, circleId and kind required" }, 400);
+      }
+
+      await env.DB.prepare(
+        body.checked
+          ? `INSERT OR IGNORE INTO roster_report_checks
+               (plan_id, friend_viewer_id, circle_id, kind, checked_by, checked_at)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          : `DELETE FROM roster_report_checks
+              WHERE plan_id = ? AND friend_viewer_id = ? AND circle_id = ? AND kind = ?`,
+      )
+        .bind(
+          ...(body.checked
+            ? [plan.id, friendViewerId, circleId, kind, officer.id, new Date().toISOString()]
+            : [plan.id, friendViewerId, circleId, kind]),
+        )
+        .run();
+
+      await audit(env, officer.id, body.checked ? "report.check" : "report.uncheck", {
+        planId: plan.id,
+        friendViewerId,
+        circleId,
+        kind,
+      });
+      return json({ ok: true });
+    }
+
+    if (body?.action === "finalise") {
+      const plan = await env.DB.prepare("SELECT id FROM roster_plans WHERE year_month = ?")
+        .bind(yearMonth)
+        .first<{ id: number }>();
+      if (!plan) return json({ error: "no plan for this month" }, 404);
+
+      const report = await buildReshuffleReport(env, plan.id);
+      await env.DB.prepare(
+        `UPDATE roster_plans SET status = 'final', finalised_by = ?, finalised_at = ?, report_json = ?
+          WHERE id = ?`,
+      )
+        .bind(officer.id, report.generatedAt, JSON.stringify(report), plan.id)
+        .run();
+      await audit(env, officer.id, "roster.finalise", {
+        yearMonth,
+        kicks: report.clubs.reduce((n, c) => n + c.kick.length, 0),
+        invites: report.clubs.reduce((n, c) => n + c.invite.length, 0),
+      });
+      return json({ ok: true, report });
     }
 
     return json({ error: "unknown action" }, 400);
   }
 
   return json({ error: "method not allowed" }, 405);
+}
+
+interface ReportMember {
+  friendViewerId: number;
+  name: string;
+  /** Kick: the club they are going to. Invite: the club they are coming from. null = none of ours. */
+  otherCircleId: number | null;
+  otherClub: string | null;
+}
+
+interface ReshuffleReport {
+  generatedAt: string;
+  /** The chrono day the "current club" side was read from. */
+  dataYmd: number;
+  clubs: { circleId: number; name: string; kick: ReportMember[]; invite: ReportMember[] }[];
+  /** In a club now, but the plan leaves them unplaced — no action is listed for them. */
+  unplaced: ReportMember[];
+  /** On chrono's roster, but not in the plan at all (joined after it was built). */
+  notInPlan: ReportMember[];
+}
+
+/**
+ * What each club has to do in-game to carry out a plan (D041): who to kick
+ * and who to invite, diffed against chrono's roster for the site's day.
+ *
+ * A member moving A → B is a kick in A and an invite in B. Someone not in any
+ * of our clubs now (added by hand, D030) is only an invite. Unplaced members
+ * and members missing from the plan are reported, never turned into kicks —
+ * an unfinished plan must not tell anyone to remove a member.
+ */
+async function buildReshuffleReport(env: Env, planId: number): Promise<ReshuffleReport> {
+  const dataYmd = await latestDataYmd(env);
+
+  const { results: clubs } = await env.DB.prepare(
+    "SELECT circle_id, name FROM clubs WHERE is_active = 1 ORDER BY slot_order",
+  ).all<{ circle_id: number; name: string }>();
+  const clubName = new Map(clubs.map((c) => [c.circle_id, c.name]));
+
+  const { results: entries } = await env.DB.prepare(
+    `SELECT e.friend_viewer_id, e.circle_id AS planned, r.circle_id AS current, e.leaving,
+            COALESCE(m.name, CAST(e.friend_viewer_id AS TEXT)) AS name
+       FROM roster_plan_entries e
+       LEFT JOIN members m ON m.friend_viewer_id = e.friend_viewer_id
+       LEFT JOIN club_roster r
+         ON r.friend_viewer_id = e.friend_viewer_id AND r.ymd = ?
+        AND r.circle_id IN (SELECT circle_id FROM clubs WHERE is_active = 1)
+      WHERE e.plan_id = ?
+      ORDER BY name COLLATE NOCASE`,
+  )
+    .bind(dataYmd, planId)
+    .all<{
+      friend_viewer_id: number;
+      planned: number | null;
+      current: number | null;
+      leaving: number;
+      name: string;
+    }>();
+
+  const { results: missing } = await env.DB.prepare(
+    `SELECT r.friend_viewer_id, r.circle_id,
+            COALESCE(m.name, CAST(r.friend_viewer_id AS TEXT)) AS name
+       FROM club_roster r
+       JOIN clubs c ON c.circle_id = r.circle_id AND c.is_active = 1
+       LEFT JOIN members m ON m.friend_viewer_id = r.friend_viewer_id
+      WHERE r.ymd = ?
+        AND r.friend_viewer_id NOT IN (SELECT friend_viewer_id FROM roster_plan_entries WHERE plan_id = ?)
+      ORDER BY c.slot_order, name COLLATE NOCASE`,
+  )
+    .bind(dataYmd, planId)
+    .all<{ friend_viewer_id: number; circle_id: number; name: string }>();
+
+  const member = (friendViewerId: number, name: string, other: number | null): ReportMember => ({
+    friendViewerId,
+    name,
+    otherCircleId: other,
+    otherClub: other === null ? null : (clubName.get(other) ?? `Club ${other}`),
+  });
+
+  const report: ReshuffleReport = {
+    generatedAt: new Date().toISOString(),
+    dataYmd,
+    clubs: clubs.map((c) => ({ circleId: c.circle_id, name: c.name, kick: [], invite: [] })),
+    unplaced: [],
+    notInPlan: missing.map((m) => member(m.friend_viewer_id, m.name, m.circle_id)),
+  };
+  const section = new Map(report.clubs.map((c) => [c.circleId, c]));
+
+  for (const e of entries) {
+    // Leaving (D042) is a decision, so it is a kick — with nowhere to go. A
+    // leaver chrono already shows outside our clubs needs nothing.
+    if (e.leaving === 1) {
+      if (e.current !== null) section.get(e.current)?.kick.push(member(e.friend_viewer_id, e.name, null));
+      continue;
+    }
+    if (e.planned === null) {
+      if (e.current !== null) report.unplaced.push(member(e.friend_viewer_id, e.name, e.current));
+      continue;
+    }
+    if (e.planned === e.current) continue;
+    if (e.current !== null) {
+      section.get(e.current)?.kick.push(member(e.friend_viewer_id, e.name, e.planned));
+    }
+    section.get(e.planned)?.invite.push(member(e.friend_viewer_id, e.name, e.current));
+  }
+
+  return report;
 }
 
 /**
@@ -404,16 +716,32 @@ async function fillPlan(env: Env, officer: Officer, yearMonth: number): Promise<
     .first<{ id: number; status: string }>();
   if (!plan) return json({ error: "no plan for this month" }, 404);
 
-  const { results: entries } = await env.DB.prepare(
-    "SELECT friend_viewer_id, circle_id, source FROM roster_plan_entries WHERE plan_id = ?",
+  const { results: allEntries } = await env.DB.prepare(
+    `SELECT friend_viewer_id, circle_id, source, leaving, est_mtd_avg
+       FROM roster_plan_entries WHERE plan_id = ?`,
   )
     .bind(plan.id)
-    .all<{ friend_viewer_id: number; circle_id: number | null; source: string }>();
+    .all<{
+      friend_viewer_id: number;
+      circle_id: number | null;
+      source: string;
+      leaving: number;
+      est_mtd_avg: number | null;
+    }>();
 
-  const { candidates, clubs, pins } = await loadPlacementInputs(env);
+  // Leavers (D042) are out of the deal entirely: not seated, not locked, not
+  // written. Otherwise a fill would quietly put them back in a club.
+  const leavers = new Set(allEntries.filter((e) => e.leaving === 1).map((e) => e.friend_viewer_id));
+  const entries = allEntries.filter((e) => !leavers.has(e.friend_viewer_id));
+
+  const inputs = await loadPlacementInputs(env);
+  const clubs = inputs.clubs;
+  const candidates = inputs.candidates.filter((c) => !leavers.has(c.friendViewerId));
+  const pins = inputs.pins.filter((p) => !leavers.has(p.friendViewerId));
 
   // A member added by hand has no `member_day` row yet, so they are missing
-  // from `candidates` — carry them in with no average so they sort last.
+  // from `candidates` — carry them in on the officer's estimate (D043), or
+  // with no average, which sorts them last.
   const known = new Set(candidates.map((c) => c.friendViewerId));
   const extra = entries.filter((e) => !known.has(e.friend_viewer_id));
   if (extra.length > 0) {
@@ -439,17 +767,25 @@ async function fillPlan(env: Env, officer: Officer, yearMonth: number): Promise<
         friendViewerId: entry.friend_viewer_id,
         name: names.get(entry.friend_viewer_id) ?? String(entry.friend_viewer_id),
         currentCircleId: entry.circle_id ?? fallbackCircleId,
-        mtdAvg: 0,
+        mtdAvg: entry.est_mtd_avg ?? 0,
       });
     }
   }
 
-  // Hand placements outrank the standing pins: an officer moving someone this
-  // month is a deliberate override of where a pin would put them.
-  const locked: Pin[] = pins.filter((pin) =>
-    entries.every((e) => e.friend_viewer_id !== pin.friendViewerId || e.source !== "manual"),
+  // Hand placements outrank the standing locks: an officer moving someone this
+  // month is a deliberate override of where a lock would put them. Chrono's
+  // club leads are the exception — nothing moves them (D044), so a hand
+  // placement left over from before that rule cannot either.
+  const chronoHeld = new Set(
+    pins.filter((p) => p.kind !== "manual").map((p) => p.friendViewerId),
+  );
+  const locked: Pin[] = pins.filter(
+    (pin) =>
+      chronoHeld.has(pin.friendViewerId) ||
+      entries.every((e) => e.friend_viewer_id !== pin.friendViewerId || e.source !== "manual"),
   );
   for (const entry of entries) {
+    if (chronoHeld.has(entry.friend_viewer_id)) continue;
     if (entry.source === "manual" && entry.circle_id !== null) {
       locked.push({
         friendViewerId: entry.friend_viewer_id,
@@ -502,12 +838,14 @@ async function addPlanMember(
   env: Env,
   officer: Officer,
   yearMonth: number,
-  body: { friendViewerId?: number; name?: string; circleId?: number | null },
+  body: { friendViewerId?: number; name?: string; circleId?: number | null; estMtdAvg?: number | null },
 ): Promise<Response> {
   const friendViewerId = Number(body.friendViewerId);
   if (!Number.isSafeInteger(friendViewerId) || friendViewerId <= 0) {
     return json({ error: "a numeric friendViewerId is required" }, 400);
   }
+  const est = parseEstimate(body.estMtdAvg);
+  if (est === undefined) return json({ error: "fans/day must be a whole number, 0 or more" }, 400);
 
   const plan = await env.DB.prepare("SELECT id FROM roster_plans WHERE year_month = ?")
     .bind(yearMonth)
@@ -549,13 +887,13 @@ async function addPlanMember(
 
   await env.DB.prepare(
     `INSERT INTO roster_plan_entries
-       (plan_id, friend_viewer_id, circle_id, position, source, projected_circle_id, moved_by, moved_at)
-     VALUES (?, ?, ?, ?, 'manual', NULL, ?, ?)`,
+       (plan_id, friend_viewer_id, circle_id, position, source, projected_circle_id, moved_by, moved_at, est_mtd_avg)
+     VALUES (?, ?, ?, ?, 'manual', NULL, ?, ?, ?)`,
   )
-    .bind(plan.id, friendViewerId, circleId, next?.pos ?? 1, officer.id, now)
+    .bind(plan.id, friendViewerId, circleId, next?.pos ?? 1, officer.id, now, est)
     .run();
 
-  await audit(env, officer.id, "roster.add", { planId: plan.id, friendViewerId, name });
+  await audit(env, officer.id, "roster.add", { planId: plan.id, friendViewerId, name, est });
   return json({ ok: true, friendViewerId, name });
 }
 
@@ -569,9 +907,9 @@ async function loadPlacementInputs(env: Env): Promise<{
   clubs: PromotionClub[];
   pins: Pin[];
 }> {
-  const ymd = (
-    await env.DB.prepare("SELECT MAX(ymd) AS ymd FROM member_day").first<{ ymd: number }>()
-  )?.ymd;
+  // The site's day, not MAX(ymd): on a day one club lands late, MAX(ymd) has
+  // no rows for that club and its members would drop out of the plan (D038).
+  const ymd = await latestDataYmd(env);
 
   const { results: clubRows } = await env.DB.prepare(
     `SELECT circle_id, name, slot_order, capacity, in_pool, leader_viewer_id_api
@@ -619,44 +957,86 @@ async function loadPlacementInputs(env: Env): Promise<{
   };
 }
 
-async function seedPlan(
+type PlanBaseline = "projection" | "chrono";
+
+/**
+ * Build a month's plan from scratch, replacing any plan already there.
+ *
+ * - `projection`: the algorithm's proposal (D022) — "Redo projection".
+ * - `chrono`: everyone in the club chrono has them in today (D040) — "Match
+ *   chrono". Every entry's reference club is then their current club, so a
+ *   drag shows as a move away from where they actually are.
+ *
+ * One `batch`, which D1 runs as a single transaction. It used to be four
+ * separate steps (delete plan, delete entries, insert plan, insert entries),
+ * and an interrupted run left a plan with no entries next to entries with no
+ * plan. Entry rows find their plan by `year_month` (unique) rather than by a
+ * `last_row_id` read between statements. Orphaned entries from any earlier
+ * interrupted run are swept in the same transaction.
+ */
+async function rebuildPlan(
   env: Env,
   officer: Officer,
   yearMonth: number,
-): Promise<{ id: number; status: string; note: string | null }> {
-  const { candidates, clubs, pins } = await loadPlacementInputs(env);
-  const projection = projectPromotion(candidates, clubs, pins);
+  baseline: PlanBaseline,
+): Promise<void> {
+  let rows: { friendViewerId: number; circleId: number | null }[];
 
-  const created = await env.DB.prepare(
-    "INSERT INTO roster_plans (year_month, status, created_by, created_at) VALUES (?, 'draft', ?, ?)",
-  )
-    .bind(yearMonth, officer.id, new Date().toISOString())
-    .run();
+  if (baseline === "chrono") {
+    // Chrono's roster for the site's day (D034, D038), top club first and
+    // ranked within each so the columns read like the leaderboard.
+    const ymd = await latestDataYmd(env);
+    const { results } = await env.DB.prepare(
+      `SELECT r.friend_viewer_id, r.circle_id
+         FROM club_roster r
+         JOIN clubs c ON c.circle_id = r.circle_id AND c.is_active = 1
+         LEFT JOIN member_day md ON md.friend_viewer_id = r.friend_viewer_id AND md.ymd = r.ymd
+        WHERE r.ymd = ?
+        ORDER BY c.slot_order, md.mtd_avg IS NULL, md.mtd_avg DESC`,
+    )
+      .bind(ymd)
+      .all<{ friend_viewer_id: number; circle_id: number }>();
+    if (results.length === 0) throw new Error(`no chrono roster stored for ${ymd}`);
+    rows = results.map((r) => ({ friendViewerId: r.friend_viewer_id, circleId: r.circle_id }));
+  } else {
+    const { candidates, clubs, pins } = await loadPlacementInputs(env);
+    rows = projectPromotion(candidates, clubs, pins).placements.map((p) => ({
+      friendViewerId: p.friendViewerId,
+      circleId: p.projectedCircleId,
+    }));
+  }
 
-  const planId = created.meta.last_row_id as number;
   const positions = new Map<number, number>();
+  const planIdOf = "(SELECT id FROM roster_plans WHERE year_month = ?)";
 
-  await env.DB.batch(
-    projection.placements.map((placement) => {
-      const key = placement.projectedCircleId ?? 0;
+  await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM roster_plan_entries
+        WHERE plan_id IN ${planIdOf}
+           OR plan_id NOT IN (SELECT id FROM roster_plans)`,
+    ).bind(yearMonth),
+    env.DB.prepare(
+      `DELETE FROM roster_report_checks
+        WHERE plan_id IN ${planIdOf}
+           OR plan_id NOT IN (SELECT id FROM roster_plans)`,
+    ).bind(yearMonth),
+    env.DB.prepare("DELETE FROM roster_plans WHERE year_month = ?").bind(yearMonth),
+    env.DB.prepare(
+      `INSERT INTO roster_plans (year_month, status, baseline, created_by, created_at)
+       VALUES (?, 'draft', ?, ?, ?)`,
+    ).bind(yearMonth, baseline, officer.id, new Date().toISOString()),
+    ...rows.map((row) => {
+      const key = row.circleId ?? 0;
       const position = (positions.get(key) ?? 0) + 1;
       positions.set(key, position);
 
       return env.DB.prepare(
         `INSERT INTO roster_plan_entries
            (plan_id, friend_viewer_id, circle_id, position, source, projected_circle_id)
-         VALUES (?, ?, ?, ?, 'projected', ?)`,
-      ).bind(
-        planId,
-        placement.friendViewerId,
-        placement.projectedCircleId,
-        position,
-        placement.projectedCircleId,
-      );
+         VALUES (${planIdOf}, ?, ?, ?, 'projected', ?)`,
+      ).bind(yearMonth, row.friendViewerId, row.circleId, position, row.circleId);
     }),
-  );
-
-  return { id: planId, status: "draft", note: null };
+  ]);
 }
 
 // ------------------------------------------------------- change password ----
@@ -897,6 +1277,13 @@ async function officers(request: Request, env: Env, officer: Officer): Promise<R
 }
 
 // ---------------------------------------------------------------- utils ----
+
+/** An estimate from the client: null/absent clears it; undefined means invalid. */
+function parseEstimate(raw: unknown): number | null | undefined {
+  if (raw === null || raw === undefined || raw === "") return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
 
 function currentYearMonth(): number {
   const now = new Date();

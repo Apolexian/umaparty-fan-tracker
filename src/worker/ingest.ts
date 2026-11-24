@@ -268,12 +268,19 @@ export async function ingestClubProfile(
   // club joined to nothing and rendered empty. (D034)
   const rosterYmd = latestPayloadYmd(profile, year, month) ?? ymd;
 
+  // Each member's club role as chrono reports it today (D044): 1 member,
+  // 2 officer, 3 leader. The lead keeps their club through a reshuffle.
+  const roles = new Map(
+    profile.club_friend_profile.map((p) => [p.friend_viewer_id, p.membership ?? null]),
+  );
+
   for (const friendViewerId of roster) {
     statements.push(
       env.DB.prepare(
-        `INSERT INTO club_roster (circle_id, ymd, friend_viewer_id) VALUES (?, ?, ?)
-         ON CONFLICT (circle_id, ymd, friend_viewer_id) DO NOTHING`,
-      ).bind(circleId, rosterYmd, friendViewerId),
+        `INSERT INTO club_roster (circle_id, ymd, friend_viewer_id, membership) VALUES (?, ?, ?, ?)
+         ON CONFLICT (circle_id, ymd, friend_viewer_id) DO UPDATE SET
+           membership = COALESCE(excluded.membership, club_roster.membership)`,
+      ).bind(circleId, rosterYmd, friendViewerId, roles.get(friendViewerId) ?? null),
     );
   }
 
